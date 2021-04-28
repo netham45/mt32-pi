@@ -22,7 +22,7 @@
 
 #include <circle/timer.h>
 
-#include "lcd/hd44780.h"
+#include "lcd/drivers/hd44780.h"
 
 constexpr u8 LCDDataBit      = (1 << 0);
 constexpr u8 LCDEnableBit    = (1 << 2);
@@ -37,7 +37,7 @@ CHD44780I2C::CHD44780I2C(CI2CMaster* pI2CMaster, u8 nAddress, u8 nColumns, u8 nR
 
 void CHD44780I2C::SetBacklightEnabled(bool bEnabled)
 {
-	CSynthLCD::SetBacklightEnabled(bEnabled);
+	m_bBacklightEnabled = bEnabled;
 
 	// Send a clear command to ensure the backlight bit is updated
 	Clear(true);

@@ -24,10 +24,10 @@
 #include <circle/timer.h>
 
 #include "lcd/barchars.h"
-#include "lcd/hd44780.h"
+#include "lcd/drivers/hd44780.h"
 
 CHD44780Base::CHD44780Base(u8 nColumns, u8 nRows)
-	: CSynthLCD(),
+	: CLCD(),
 	  m_nRows(nRows),
 	  m_nColumns(nColumns),
 	  m_RowOffsets{ 0, 0x40, m_nColumns, u8(0x40 + m_nColumns) },
@@ -159,119 +159,119 @@ void CHD44780Base::Clear(bool bImmediate)
 	CTimer::SimpleMsDelay(50);
 }
 
-void CHD44780Base::DrawChannelLevels(u8 nFirstRow, u8 nRows, u8 nBarXOffset, u8 nBarSpacing, u8 nChannels, bool bDrawBarBases)
-{
-	char LineBuf[nRows][m_nColumns];
-	const u8 nBarHeight = nRows * 8;
+// void CHD44780Base::DrawChannelLevels(u8 nFirstRow, u8 nRows, u8 nBarXOffset, u8 nBarSpacing, u8 nChannels, bool bDrawBarBases)
+// {
+// 	char LineBuf[nRows][m_nColumns];
+// 	const u8 nBarHeight = nRows * 8;
 
-	// Initialize with ASCII spaces
-	memset(LineBuf, ' ', sizeof(LineBuf));
+// 	// Initialize with ASCII spaces
+// 	memset(LineBuf, ' ', sizeof(LineBuf));
 
-	// For each channel
-	for (u8 i = 0; i < nChannels; ++i)
-	{
-		const u8 nCharIndex = i + i * nBarSpacing + nBarXOffset;
-		assert(nCharIndex < 20);
+// 	// For each channel
+// 	for (u8 i = 0; i < nChannels; ++i)
+// 	{
+// 		const u8 nCharIndex = i + i * nBarSpacing + nBarXOffset;
+// 		assert(nCharIndex < 20);
 
-		u8 nLevelPixels = m_ChannelLevels[i] * nBarHeight;
-		if (bDrawBarBases && nLevelPixels == 0)
-			nLevelPixels = 1;
+// 		u8 nLevelPixels = m_ChannelLevels[i] * nBarHeight;
+// 		if (bDrawBarBases && nLevelPixels == 0)
+// 			nLevelPixels = 1;
 
-		const u8 nFullRows  = nLevelPixels / 8;
-		const u8 nRemainder = nLevelPixels % 8;
+// 		const u8 nFullRows  = nLevelPixels / 8;
+// 		const u8 nRemainder = nLevelPixels % 8;
 
-		for (u8 j = 0; j < nFullRows; ++j)
-			LineBuf[nRows - j - 1][nCharIndex] = BarChars[8];
+// 		for (u8 j = 0; j < nFullRows; ++j)
+// 			LineBuf[nRows - j - 1][nCharIndex] = BarChars[8];
 
-		for (u8 j = nFullRows; j < nRows; ++j)
-			LineBuf[nRows - j - 1][nCharIndex] = BarChars[0];
+// 		for (u8 j = nFullRows; j < nRows; ++j)
+// 			LineBuf[nRows - j - 1][nCharIndex] = BarChars[0];
 
-		if (nRemainder)
-			LineBuf[nRows - nFullRows - 1][nCharIndex] = BarChars[nRemainder];
-	}
+// 		if (nRemainder)
+// 			LineBuf[nRows - nFullRows - 1][nCharIndex] = BarChars[nRemainder];
+// 	}
 
-	for (u8 nRow = 0; nRow < nRows; ++nRow)
-	{
-		WriteCommand(0x80 | m_RowOffsets[nFirstRow + nRow]);
-		for (u8 nColumn = 0; nColumn < m_nColumns; ++nColumn)
-			WriteData(LineBuf[nRow][nColumn]);
-	}
-}
+// 	for (u8 nRow = 0; nRow < nRows; ++nRow)
+// 	{
+// 		WriteCommand(0x80 | m_RowOffsets[nFirstRow + nRow]);
+// 		for (u8 nColumn = 0; nColumn < m_nColumns; ++nColumn)
+// 			WriteData(LineBuf[nRow][nColumn]);
+// 	}
+// }
 
-void CHD44780Base::Update(CMT32Synth& Synth)
-{
-	CSynthLCD::Update(Synth);
+// void CHD44780Base::Update(CMT32Synth& Synth)
+// {
+// 	CSynthLCD::Update(Synth);
 
-	// Bail out if display is off
-	if (!m_bBacklightEnabled)
-		return;
+// 	// Bail out if display is off
+// 	if (!m_bBacklightEnabled)
+// 		return;
 
-	SetBarChars(TBarCharSet::Wide);
-	UpdateChannelLevels(Synth);
+// 	SetBarChars(TBarCharSet::Wide);
+// 	UpdateChannelLevels(Synth);
 
-	const bool bShowSystemMessage = m_SystemState != TSystemState::None && m_SystemState != TSystemState::DisplayingImage;
+// 	const bool bShowSystemMessage = m_SystemState != TSystemState::None && m_SystemState != TSystemState::DisplayingImage;
 
-	if (m_nRows == 2)
-	{
-		if (bShowSystemMessage)
-			Print(m_SystemMessageTextBuffer, 0, 0, true);
-		else
-			DrawChannelLevels(0, 1, 0, 1, MT32ChannelCount, false);
+// 	if (m_nRows == 2)
+// 	{
+// 		if (bShowSystemMessage)
+// 			Print(m_SystemMessageTextBuffer, 0, 0, true);
+// 		else
+// 			DrawChannelLevels(0, 1, 0, 1, MT32ChannelCount, false);
 
-		if (m_SystemState != TSystemState::EnteringPowerSavingMode)
-			Print(m_MT32TextBuffer, 0, 1, true);
-	}
-	else if (m_nRows == 4)
-	{
-		if (bShowSystemMessage)
-		{
-			// Clear top line
-			Print("", 0, 0, true);
-			Print(m_SystemMessageTextBuffer, 0, 1, true);
-			Print("", 0, 2, true);
-		}
-		else
-			DrawChannelLevels(0, 3, 0, 1, MT32ChannelCount, false);
+// 		if (m_SystemState != TSystemState::EnteringPowerSavingMode)
+// 			Print(m_MT32TextBuffer, 0, 1, true);
+// 	}
+// 	else if (m_nRows == 4)
+// 	{
+// 		if (bShowSystemMessage)
+// 		{
+// 			// Clear top line
+// 			Print("", 0, 0, true);
+// 			Print(m_SystemMessageTextBuffer, 0, 1, true);
+// 			Print("", 0, 2, true);
+// 		}
+// 		else
+// 			DrawChannelLevels(0, 3, 0, 1, MT32ChannelCount, false);
 
-		if (m_SystemState != TSystemState::EnteringPowerSavingMode)
-			Print(m_MT32TextBuffer, 0, 3, true);
-	}
-}
+// 		if (m_SystemState != TSystemState::EnteringPowerSavingMode)
+// 			Print(m_MT32TextBuffer, 0, 3, true);
+// 	}
+// }
 
-void CHD44780Base::Update(CSoundFontSynth& Synth)
-{
-	CSynthLCD::Update(Synth);
+// void CHD44780Base::Update(CSoundFontSynth& Synth)
+// {
+// 	CSynthLCD::Update(Synth);
 
-	// Bail out if display is off
-	if (!m_bBacklightEnabled)
-		return;
+// 	// Bail out if display is off
+// 	if (!m_bBacklightEnabled)
+// 		return;
 
-	SetBarChars(TBarCharSet::Narrow);
-	UpdateChannelLevels(Synth);
+// 	SetBarChars(TBarCharSet::Narrow);
+// 	UpdateChannelLevels(Synth);
 
-	const bool bShowSystemMessage = m_SystemState != TSystemState::None && m_SystemState != TSystemState::DisplayingImage;
+// 	const bool bShowSystemMessage = m_SystemState != TSystemState::None && m_SystemState != TSystemState::DisplayingImage;
 
-	if (m_nRows == 2)
-	{
-		if (bShowSystemMessage)
-		{
-			Print(m_SystemMessageTextBuffer, 0, 0, true);
-			Print("", 0, 1, true);
-		}
-		else
-			DrawChannelLevels(0, m_nRows, 2, 0, MIDIChannelCount);
-	}
-	else if (m_nRows == 4)
-	{
-		if (bShowSystemMessage)
-		{
-			// Clear top line
-			Print("", 0, 0, true);
-			Print(m_SystemMessageTextBuffer, 0, 1, true);
-			Print("", 0, 2, true);
-			Print("", 0, 3, true);
-		}
-		else
-			DrawChannelLevels(0, m_nRows, 2, 0, MIDIChannelCount);
-	}
-}
+// 	if (m_nRows == 2)
+// 	{
+// 		if (bShowSystemMessage)
+// 		{
+// 			Print(m_SystemMessageTextBuffer, 0, 0, true);
+// 			Print("", 0, 1, true);
+// 		}
+// 		else
+// 			DrawChannelLevels(0, m_nRows, 2, 0, MIDIChannelCount);
+// 	}
+// 	else if (m_nRows == 4)
+// 	{
+// 		if (bShowSystemMessage)
+// 		{
+// 			// Clear top line
+// 			Print("", 0, 0, true);
+// 			Print(m_SystemMessageTextBuffer, 0, 1, true);
+// 			Print("", 0, 2, true);
+// 			Print("", 0, 3, true);
+// 		}
+// 		else
+// 			DrawChannelLevels(0, m_nRows, 2, 0, MIDIChannelCount);
+// 	}
+// }

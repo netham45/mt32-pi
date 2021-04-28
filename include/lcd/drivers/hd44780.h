@@ -28,24 +28,25 @@
 #include <circle/sched/scheduler.h>
 #include <circle/types.h>
 
-#include "lcd/clcd.h"
-#include "lcd/synthlcd.h"
 #include "synth/mt32synth.h"
 
-class CHD44780Base : public CSynthLCD
+class CHD44780Base : public CLCD
 {
 public:
 	CHD44780Base(u8 nColumns = 20, u8 nRows = 2);
 	virtual ~CHD44780Base() = default;
 
-	// CCharacterLCD
 	virtual bool Initialize() override;
-	virtual void Print(const char* pText, u8 nCursorX, u8 nCursorY, bool bClearLine = false, bool bImmediate = true) override;
+	virtual TType GetType() const override { return TType::Character; }
+	virtual void GetDimensions(u8& nWidth, u8& nHeight) const override { nWidth = m_nColumns; nHeight = m_nRows; };
+
+	// Character functions
 	virtual void Clear(bool bImmediate = true) override;
+	virtual void Print(const char* pText, u8 nCursorX, u8 nCursorY, bool bClearLine = false, bool bImmediate = true) override;
 
 	// CSynthLCD
-	virtual void Update(CMT32Synth& Synth) override;
-	virtual void Update(CSoundFontSynth& Synth) override;
+	// virtual void Update(CMT32Synth& Synth) override;
+	// virtual void Update(CSoundFontSynth& Synth) override;
 
 protected:
 	enum class TWriteMode

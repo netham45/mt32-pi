@@ -28,8 +28,9 @@
 
 #include <cstdarg>
 
-#include "lcd/hd44780.h"
-#include "lcd/ssd1306.h"
+#include "lcd/drivers/hd44780.h"
+#include "lcd/drivers/ssd1306.h"
+#include "lcd/ui.h"
 #include "mt32pi.h"
 
 const char MT32PiName[] = "mt32-pi";
@@ -460,20 +461,27 @@ void CMT32Pi::UITask()
 
 	while (m_bRunning)
 	{
-		unsigned ticks = m_pTimer->GetTicks();
+		const unsigned int nTicks = CTimer::GetClockTicks();
 
 		// Update LCD
-		if (m_pLCD && (ticks - m_nLCDUpdateTime) >= MSEC2HZ(LCDUpdatePeriodMillis))
+		if (m_pLCD && (nTicks - m_nLCDUpdateTime) >= Utility::MillisToTicks(LCDUpdatePeriodMillis))
 		{
-			if (m_pCurrentSynth == m_pMT32Synth)
-				m_pLCD->Update(*m_pMT32Synth);
-			else
-				m_pLCD->Update(*m_pSoundFontSynth);
-			m_nLCDUpdateTime = ticks;
+			const CUserInterface::TState UIState = m_UserInterface.GetState();
+
+			if (UIState != CUserInterface::TState::InPowerSavingMode)
+			{
+				m_pLCD->Clear(false);
+				if (UIState != CUserInterface::TState::DisplayingImage)
+					m_pCurrentSynth->UpdateLCD(nTicks);
+				m_UserInterface.Update(*m_pLCD, nTicks);
+				m_pLCD->Flip();
+			}
+
+			m_nLCDUpdateTime = nTicks;
 		}
 
 		// Poll MiSTer interface
-		if (bMisterEnabled && (ticks - m_nMisterUpdateTime) >= MSEC2HZ(MisterUpdatePeriodMillis))
+		if (bMisterEnabled && (nTicks - m_nMisterUpdateTime) >= Utility::MillisToTicks(MisterUpdatePeriodMillis))
 		{
 			TMisterStatus Status{TMisterSynth::Unknown, 0xFF, 0xFF};
 
@@ -489,7 +497,7 @@ void CMT32Pi::UITask()
 				Status.SoundFontIndex = m_pSoundFontSynth->GetSoundFontIndex();
 
 			m_MisterControl.Update(Status);
-			m_nMisterUpdateTime = ticks;
+			m_nMisterUpdateTime = nTicks;
 		}
 	}
 
@@ -561,8 +569,8 @@ void CMT32Pi::OnEnterPowerSavingMode()
 	CPower::OnEnterPowerSavingMode();
 	m_pSound->Cancel();
 
-	if (m_pLCD)
-		m_pLCD->EnterPowerSavingMode();
+	// if (m_pLCD)
+	// 	m_pLCD->EnterPowerSavingMode();
 }
 
 void CMT32Pi::OnExitPowerSavingMode()
@@ -570,8 +578,8 @@ void CMT32Pi::OnExitPowerSavingMode()
 	CPower::OnExitPowerSavingMode();
 	m_pSound->Start();
 
-	if (m_pLCD)
-		m_pLCD->ExitPowerSavingMode();
+	// if (m_pLCD)
+	// 	m_pLCD->ExitPowerSavingMode();
 }
 
 void CMT32Pi::OnThrottleDetected()
@@ -919,8 +927,7 @@ void CMT32Pi::ProcessEventQueue()
 				break;
 
 			case TEventType::DisplayImage:
-				if (m_pLCD)
-					m_pLCD->OnDisplayImage(Event.DisplayImage.Image);
+				m_UserInterface.DisplayImage(Event.DisplayImage.Image);
 				break;
 
 			case TEventType::Encoder:
@@ -1102,7 +1109,7 @@ void CMT32Pi::LCDLog(TLCDLogType Type, const char* pFormat...)
 
 	// Let LCD task pick up the message in its next update
 	else
-		m_pLCD->OnSystemMessage(Buffer, Type == TLCDLogType::Spinner);
+		m_UserInterface.ShowSystemMessage(Buffer, Type == TLCDLogType::Spinner);
 }
 
 // TODO: Generic configurable DAC init class

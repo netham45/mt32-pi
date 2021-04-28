@@ -25,6 +25,7 @@
 #include <circle/timer.h>
 
 #include "config.h"
+#include "lcd/ui.h"
 #include "synth/gmsysex.h"
 #include "synth/rolandsysex.h"
 #include "synth/soundfontsynth.h"
@@ -257,6 +258,9 @@ void CSoundFontSynth::HandleMIDIShortMessage(u32 nMessage)
 	}
 
 	m_Lock.Release();
+
+	// Update MIDI monitor
+	CSynthBase::HandleMIDIShortMessage(nMessage);
 }
 
 void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
@@ -270,6 +274,9 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 			m_Lock.Acquire();
 			fluid_synth_system_reset(m_pSynth);
 			m_Lock.Release();
+
+			m_MIDIMonitor.AllNotesOff();
+			m_MIDIMonitor.ResetControllers(false);
 			return;
 		}
 	}
@@ -285,6 +292,9 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 			m_Lock.Acquire();
 			fluid_synth_system_reset(m_pSynth);
 			m_Lock.Release();
+
+			m_MIDIMonitor.AllNotesOff();
+			m_MIDIMonitor.ResetControllers(false);
 			return;
 		}
 	}
@@ -295,9 +305,9 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 		const auto& DisplayTextMessage = reinterpret_cast<const TSC55DisplayTextSysExMessage&>(*pData);
 		if (DisplayTextMessage.IsValid())
 		{
-			const char* pMessage = reinterpret_cast<const char*>(DisplayTextMessage.GetData());
-			if (m_pLCD)
-				m_pLCD->OnSC55DisplayText(pMessage);
+			//const char* pMessage = reinterpret_cast<const char*>(DisplayTextMessage.GetData());
+			// if (m_pLCD)
+			// 	m_pLCD->OnSC55DisplayText(pMessage);
 			return;
 		}
 	}
@@ -306,8 +316,8 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 		const auto& DisplayDotsMessage = reinterpret_cast<const TSC55DisplayDotsSysExMessage&>(*pData);
 		if (DisplayDotsMessage.IsValid())
 		{
-			if (m_pLCD)
-				m_pLCD->OnSC55DisplayDots(DisplayDotsMessage.GetData());
+			// if (m_pLCD)
+			// 	m_pLCD->OnSC55DisplayDots(DisplayDotsMessage.GetData());
 			return;
 		}
 	}
@@ -332,6 +342,9 @@ void CSoundFontSynth::AllSoundOff()
 	m_Lock.Acquire();
 	fluid_synth_all_sounds_off(m_pSynth, -1);
 	m_Lock.Release();
+
+	// Reset MIDI monitor
+	CSynthBase::AllSoundOff();
 }
 
 void CSoundFontSynth::SetMasterVolume(u8 nVolume)
@@ -358,42 +371,23 @@ size_t CSoundFontSynth::Render(s16* pOutBuffer, size_t nFrames)
 	return nFrames;
 }
 
-u8 CSoundFontSynth::GetChannelVelocities(u8* pOutVelocities, size_t nMaxChannels)
-{
-	nMaxChannels = Utility::Min(nMaxChannels, static_cast<size_t>(16));
-
-	m_Lock.Acquire();
-
-	const size_t nVoices = fluid_synth_get_polyphony(m_pSynth);
-
-	// Null-terminated
-	fluid_voice_t* Voices[nVoices + 1];
-	fluid_voice_t** pCurrentVoice = Voices;
-
-	// Initialize output array
-	memset(Voices, 0, (nVoices + 1) * sizeof(*Voices));
-	memset(pOutVelocities, 0, nMaxChannels);
-
-	fluid_synth_get_voicelist(m_pSynth, Voices, nVoices, -1);
-
-	while (*pCurrentVoice)
-	{
-		const u8 nChannel = fluid_voice_get_channel(*pCurrentVoice);
-		const u8 nVelocity = fluid_voice_is_on(*pCurrentVoice) ? fluid_voice_get_actual_velocity(*pCurrentVoice) : 0;
-
-		pOutVelocities[nChannel] = Utility::Max(pOutVelocities[nChannel], nVelocity);
-		++pCurrentVoice;
-	}
-
-	m_Lock.Release();
-
-	return nMaxChannels;
-}
-
 void CSoundFontSynth::ReportStatus() const
 {
-	if (m_pLCD)
-		m_pLCD->OnSystemMessage(m_SoundFontManager.GetSoundFontName(m_nCurrentSoundFontIndex));
+	// if (m_pLCD)
+	// 	m_pLCD->OnSystemMessage(m_SoundFontManager.GetSoundFontName(m_nCurrentSoundFontIndex));
+}
+
+void CSoundFontSynth::UpdateLCD(unsigned int nTicks)
+{
+	if (!m_pLCD)
+		return;
+
+	// TODO: Vec2 type?
+	u8 nWidth, nHeight;
+	m_pLCD->GetDimensions(nWidth, nHeight);
+
+	const u8 nBarHeight = nHeight;
+	CUserInterface::DrawChannelLevels(*m_pLCD, m_MIDIMonitor, nBarHeight, nTicks, 16);
 }
 
 bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
@@ -401,8 +395,8 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	// Is this SoundFont already active?
 	if (m_nCurrentSoundFontIndex == nIndex)
 	{
-		if (m_pLCD)
-			m_pLCD->OnSystemMessage("Already selected!");
+		// if (m_pLCD)
+		// 	m_pLCD->OnSystemMessage("Already selected!");
 		return false;
 	}
 
@@ -410,19 +404,19 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	const char* pSoundFontPath = m_SoundFontManager.GetSoundFontPath(nIndex);
 	if (!pSoundFontPath)
 	{
-		if (m_pLCD)
-			m_pLCD->OnSystemMessage("SoundFont not avail!");
+		// if (m_pLCD)
+		// 	m_pLCD->OnSystemMessage("SoundFont not avail!");
 		return false;
 	}
 
-	if (m_pLCD)
-		m_pLCD->OnSystemMessage("Loading SoundFont", true);
+	// if (m_pLCD)
+	// 	m_pLCD->OnSystemMessage("Loading SoundFont", true);
 
 	// We can't use fluid_synth_sfunload() as we don't support the lazy SoundFont unload timer, so trash the entire synth and create a new one
 	if (!Reinitialize(pSoundFontPath, &CConfig::Get()->FXProfiles[nIndex]))
 	{
-		if (m_pLCD)
-			m_pLCD->OnSystemMessage("SF switch failed!");
+		// if (m_pLCD)
+		// 	m_pLCD->OnSystemMessage("SF switch failed!");
 
 		return false;
 	}
@@ -430,8 +424,8 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	m_nCurrentSoundFontIndex = nIndex;
 
 	CLogger::Get()->Write(SoundFontSynthName, LogNotice, "Loaded \"%s\"", m_SoundFontManager.GetSoundFontName(nIndex));
-	if (m_pLCD)
-		m_pLCD->ClearSpinnerMessage();
+	// if (m_pLCD)
+	// 	m_pLCD->ClearSpinnerMessage();
 
 	return true;
 }
@@ -471,7 +465,12 @@ bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath, const TFXProfile*
 	fluid_synth_set_chorus_group_nr(m_pSynth, -1, pFXProfile->nChorusVoices.ValueOr(pConfig->FluidSynthDefaultChorusVoices));
 	fluid_synth_set_chorus_group_speed(m_pSynth, -1, pFXProfile->nChorusSpeed.ValueOr(pConfig->FluidSynthDefaultChorusSpeed));
 
+#ifndef NDEBUG
 	DumpFXSettings();
+#endif
+
+	m_MIDIMonitor.AllNotesOff();
+	m_MIDIMonitor.ResetControllers(false);
 
 	m_Lock.Release();
 
@@ -489,6 +488,7 @@ bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath, const TFXProfile*
 	return true;
 }
 
+#ifndef NDEBUG
 void CSoundFontSynth::DumpFXSettings() const
 {
 	CLogger* const pLogger = CLogger::Get();
@@ -521,3 +521,4 @@ void CSoundFontSynth::DumpFXSettings() const
 		nChorusSpeed
 	);
 }
+#endif
