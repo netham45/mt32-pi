@@ -814,7 +814,7 @@ void CMT32Pi::ProcessEventQueue()
 				break;
 
 			case TEventType::Encoder:
-				SetMasterVolume(m_nMasterVolume + Event.Encoder.nDelta);
+				SetMasterVolume(m_nMasterVolume - Event.Encoder.nDelta);
 				break;
 		}
 	}
@@ -834,7 +834,9 @@ void CMT32Pi::ProcessButtonEvent(const TButtonEvent& Event)
 	if (Event.Button == TButton::Button1)
 	{
 		// Swap synths
-		if (m_pCurrentSynth == m_pMT32Synth)
+		if (m_pCurrentSynth == m_pSoundFontSynth)
+			SwitchSynth(TSynth::Passthrough);
+		else if (m_pCurrentSynth == m_pMT32Synth)
 			SwitchSynth(TSynth::SoundFont);
 		else
 			SwitchSynth(TSynth::MT32);
@@ -843,7 +845,7 @@ void CMT32Pi::ProcessButtonEvent(const TButtonEvent& Event)
 	{
 		if (m_pCurrentSynth == m_pMT32Synth)
 			NextMT32ROMSet();
-		else
+		else if (m_pCurrentSynth == m_pSoundFontSynth)
 		{
 			// Next SoundFont
 			const size_t nSoundFonts = m_pSoundFontSynth->GetSoundFontManager().GetSoundFontCount();
