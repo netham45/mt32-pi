@@ -67,6 +67,7 @@ CONFIG_ENUM_STRINGS(TLCDType, ENUM_LCDTYPE);
 CONFIG_ENUM_STRINGS(TControlScheme, ENUM_CONTROLSCHEME);
 CONFIG_ENUM_STRINGS(TEncoderType, ENUM_ENCODERTYPE);
 CONFIG_ENUM_STRINGS(TLCDRotation, ENUM_LCDROTATION);
+CONFIG_ENUM_STRINGS(TNetworkMode, ENUM_NETWORKMODE);
 
 CConfig* CConfig::s_pThis = nullptr;
 
@@ -108,9 +109,58 @@ bool CConfig::Initialize(const char* pPath)
 
 }
 
+bool CConfig::ParseFXProfileSection(const char* pSection, size_t* pOutFXProfileIndex)
+{
+	constexpr char SectionPrefix[] = "fluidsynth.soundfont.";
+	if (!strstr(pSection, SectionPrefix))
+		return false;
+
+	const char* const pProfileName = &pSection[sizeof(SectionPrefix) - 1];
+	char* pEnd;
+
+	size_t nIndex = strtoull(pProfileName, &pEnd, 10);
+	if (pEnd == pProfileName || *pEnd != '\0' || nIndex >= CSoundFontManager::MaxSoundFonts)
+		return false;
+
+	*pOutFXProfileIndex = nIndex;
+	return true;
+}
+
+bool CConfig::ParseFXProfileOption(const char* pString, const char* pValue, TFXProfile* pOutFXProfile)
+{
+	#define MATCH(NAME, TYPE, STRUCT_MEMBER)                       \
+		if (!strcmp(NAME, pString))                                \
+		{                                                          \
+			auto Temp = decltype(*pOutFXProfile->STRUCT_MEMBER){}; \
+			if (ParseOption(pValue, &Temp))                        \
+			{                                                      \
+				pOutFXProfile->STRUCT_MEMBER = Temp;               \
+				return true;                                       \
+			}                                                      \
+			return false;                                          \
+		}
+
+	MATCH("reverb", bool, bReverbActive);
+	MATCH("reverb_damping", float, nReverbDamping);
+	MATCH("reverb_level", float, nReverbLevel);
+	MATCH("reverb_room_size", float, nReverbRoomSize);
+	MATCH("reverb_width", float, nReverbWidth);
+
+	MATCH("chorus", bool, bChorusActive);
+	MATCH("chorus_depth", float, nChorusDepth);
+	MATCH("chorus_level", float, nChorusLevel);
+	MATCH("chorus_voices", int, nChorusVoices);
+	MATCH("chorus_speed", float, nChorusSpeed);
+
+	#undef MATCH
+
+	return false;
+}
+
 int CConfig::INIHandler(void* pUser, const char* pSection, const char* pName, const char* pValue)
 {
-	CConfig* config = static_cast<CConfig*>(pUser);
+	CConfig* const pConfig = static_cast<CConfig*>(pUser);
+	size_t nFXProfileIndex;
 
 	// Automatically generate ParseOption() calls from macro definition file
 	#define BEGIN_SECTION(SECTION)       \
@@ -119,13 +169,17 @@ int CConfig::INIHandler(void* pUser, const char* pSection, const char* pName, co
 
 	#define CFG(INI_NAME, TYPE, MEMBER_NAME, _2, ...) \
 		if (!strcmp(#INI_NAME, pName))                \
-			return ParseOption(pValue, &config->MEMBER_NAME __VA_OPT__(, ) __VA_ARGS__);
+			return ParseOption(pValue, &pConfig->MEMBER_NAME __VA_OPT__(, ) __VA_ARGS__);
 
 	#define END_SECTION \
 		return 0;       \
 		}
 
 	#include "config.def"
+
+	// Special handling for SoundFont effects profiles
+	if (ParseFXProfileSection(pSection, &nFXProfileIndex))
+		return ParseFXProfileOption(pName, pValue, &pConfig->FXProfiles[nFXProfileIndex]);
 
 	return 0;
 }
@@ -165,6 +219,34 @@ bool CConfig::ParseOption(const char* pString, float* pOutFloat)
 	return true;
 }
 
+bool CConfig::ParseOption(const char* pString, CString* pOut)
+{
+	*pOut = CString(pString);
+	return true;
+}
+
+bool CConfig::ParseOption(const char* pString, CIPAddress* pOut)
+{
+	// Space for 4 period-separated groups of 3 digits plus null terminator
+	char Buffer[16];
+	u8 IPAddress[4];
+
+	strncpy(Buffer, pString, sizeof(Buffer));
+	char* pToken = strtok(Buffer, ".");
+
+	for (uint8_t i = 0; i < 4; ++i)
+	{
+		if (!pToken)
+			return false;
+
+		IPAddress[i] = atoi(pToken);
+		pToken = strtok(nullptr, ".");
+	}
+
+	pOut->Set(IPAddress);
+	return true;
+}
+
 // Define template function wrappers for parsing enums
 CONFIG_ENUM_PARSER(TSystemDefaultSynth);
 CONFIG_ENUM_PARSER(TAudioOutputDevice);
@@ -176,3 +258,4 @@ CONFIG_ENUM_PARSER(TLCDType);
 CONFIG_ENUM_PARSER(TControlScheme);
 CONFIG_ENUM_PARSER(TEncoderType);
 CONFIG_ENUM_PARSER(TLCDRotation);
+CONFIG_ENUM_PARSER(TNetworkMode);

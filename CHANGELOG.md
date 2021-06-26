@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2021-06-26
+
+### Added
+
+- Brand new boot splash logo when using graphical displays - many thanks to James Sparkman for the excellent pixel art conversion!
+  * You can re-enable verbose startup messages with a new configuration file option.
+- Basic networking support (Wi-Fi or Ethernet) - read the new `[network]` section of the configuration file to learn how to enable and set it up.
+  * In order to use Wi-Fi, firmware must be copied to the root of the SD card (new `firmware` directory in release package), and SSID/password must be added to `wpa_supplicant.conf` (example file in release package).
+- Support for receiving MIDI over the network via Wi-Fi or Ethernet using the RTP-MIDI/AppleMIDI protocol.
+  * macOS users can use this feature without any additional software (see [Apple documentation](https://support.apple.com/en-gb/guide/audio-midi-setup/ams1012/mac)).
+  * Windows users can use [rtpMIDI by Tobias Erichsen](https://www.tobias-erichsen.de/software/rtpmidi/rtpmidi-tutorial.html).
+  * Linux users can use [rtpmidid by David Moreno](https://github.com/davidmoreno/rtpmidid).
+- Ability to configure FluidSynth reverb/chorus effects (new configuration file options).
+  * Defaults can be set in the `[fluidsynth]` section.
+  * Additional sections can be added to create "profiles" that override the defaults for specific SoundFonts.
+  * An example section has been added for GeneralUser GS (assumed to be at index 0) as recommended by S. Christian Collins.
+- The rotary encoder direction can now be reversed (new configuration file option).
+- Ability to use the HDMI port for digital audio (new configuration value for `output_device`). This allows you to use inexpensive HDMI audio extractors or VGA+audio dongles to get better audio quality out of the Raspberry Pi (compared to the headphone jack).
+- Additional boot files for the Compute Module 4 and Raspberry Pi 400 are now included.
+  * The Raspberry Pi 400 is untested.
+- Ability to use USB serial devices for MIDI input (CDC class devices, CH341, CP2102, FT231x, PL2303); a new configuration file option has been added to allow setting the desired baud rate.
+
+### Changed
+
+- Update to circle-stdlib v15.8/Circle Step 44.1.
+- Update to libmt32emu v2.5.0.
+- Update to FluidSynth v2.2.1.
+- Complete overhaul of LCD code.
+  * MIDI level meters now account for channel volume and expression properly and are much more responsive.
+  * Long text messages (e.g. SoundFont names) are now scrolled, short text messages are now centered.
+  * Basic support for smaller 16-character wide screens has been added.
+- The activity LED no longer illuminates for System Common or System Real-Time messages.
+- Default clock speeds/voltages have been lowered for Pi 4/CM4 in config.txt for reduced energy usage and SoC temperature.
+- Reduced energy usage when LCD and MiSTer control interface are both disabled (core suspended).
+- "GM Mode On"/"GS Reset" SysEx messages are now handled by new internal FluidSynth code which also changes how MIDI Bank Select messages are interpreted. Additionally, "XG Reset" SysEx messages are now handled.
+
+### Fixed
+
+- USB plug/unplug events now bring mt32-pi out of power saving mode.
+- Some USB MIDI devices that violate the USB specification were unusable (discussion #102) - a workaround in the USB driver has been implemented. Thanks to @fabbrimichele for reporting and @rsta2 for the fix!
+- Hang on "Init USB" when no USB controller is present (e.g. a Compute Module 4-based system with no external XHCI controller). Huge thanks to Serdaco for donating the CM4 and I/O board for testing!
+- Boot failure on the 1GB Raspberry Pi 4/CM4 because of a bug in the memory allocator.
+- The MIDI level meters would often miss fast notes (e.g. percussion).
+
 ## [0.9.1] - 2021-03-20
 
 ### Fixed
@@ -239,7 +283,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update to circle-stdlib v15.2/Circle Step 43.
 - Boot speed improved by ~0.5 seconds by using `start_cd.elf`/`start4cd.elf` and `fixup_cd.dat`/`fixup4cd.dat`.
-  * If updating from an old version, make sure you replace `config.txt` and add the new `*.elf` and `*.dat` files when updating your SD card to benefit from this. 
+  * If updating from an old version, make sure you replace `config.txt` and add the new `*.elf` and `*.dat` files when updating your SD card to benefit from this.
 - LCD/OLED part level meters moved to the upper row(s).
 - Config file parsing now more efficient.
 
@@ -320,7 +364,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial version.
 
-[unreleased]: https://github.com/dwhinham/mt32-pi/compare/v0.9.1...HEAD
+[unreleased]: https://github.com/dwhinham/mt32-pi/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/dwhinham/mt32-pi/compare/v0.9.1..v0.10.0
 [0.9.1]: https://github.com/dwhinham/mt32-pi/compare/v0.9.0..v0.9.1
 [0.9.0]: https://github.com/dwhinham/mt32-pi/compare/v0.8.5..v0.9.0
 [0.8.5]: https://github.com/dwhinham/mt32-pi/compare/v0.8.4..v0.8.5

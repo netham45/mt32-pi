@@ -41,8 +41,8 @@ public:
 	virtual void SetMasterVolume(u8 nVolume) override;
 	virtual size_t Render(s16* pOutBuffer, size_t nFrames) override;
 	virtual size_t Render(float* pOutBuffer, size_t nFrames) override;
-	virtual u8 GetChannelVelocities(u8* pOutVelocities, size_t nMaxChannels) override;
 	virtual void ReportStatus() const override;
+        virtual void UpdateLCD(CLCD& LCD, unsigned int nTicks) override;
 
 	bool SwitchSoundFont(size_t nIndex);
 	size_t GetSoundFontIndex() const { return m_nCurrentSoundFontIndex; }
@@ -51,8 +51,6 @@ public:
 private:
 	bool Reinitialize(const char* pSoundFontPath);
 
-	fluid_settings_t* m_pSettings;
-	fluid_synth_t* m_pSynth;
 
 	float m_nInitialGain;
 	float m_nCurrentGain;
