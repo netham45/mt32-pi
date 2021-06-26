@@ -24,6 +24,8 @@
 #define _mt32pi_h
 
 #include <circle/actled.h>
+#include <circle/bcm54213.h>
+#include <circle/bcmrandom.h>
 #include <circle/cputhrottle.h>
 #include <circle/devicenameservice.h>
 #include <circle/gpiomanager.h>
@@ -31,6 +33,7 @@
 #include <circle/interrupt.h>
 #include <circle/logger.h>
 #include <circle/multicore.h>
+#include <circle/net/netsubsystem.h>
 #include <circle/sched/scheduler.h>
 #include <circle/soundbasedevice.h>
 #include <circle/spimaster.h>
@@ -39,14 +42,18 @@
 #include <circle/usb/usbhcidevice.h>
 #include <circle/usb/usbmassdevice.h>
 #include <circle/usb/usbmidi.h>
+#include <circle/usb/usbserial.h>
 #include <fatfs/ff.h>
+#include <wlan/bcm4343.h>
+#include <wlan/hostap/wpa_supplicant/wpasupplicant.h>
 
 #include "config.h"
 #include "control/control.h"
 #include "control/mister.h"
 #include "event.h"
-#include "lcd/synthlcd.h"
+#include "lcd/ui.h"
 #include "midiparser.h"
+#include "net/applemidi.h"
 #include "pisound.h"
 #include "power.h"
 #include "ringbuffer.h"
@@ -56,7 +63,9 @@
 #include "synth/passthroughsynth.h"
 #include "synth/synth.h"
 
-class CMT32Pi : public CMultiCoreSupport, CPower, CMIDIParser
+//#define MONITOR_TEMPERATURE
+
+class CMT32Pi : CMultiCoreSupport, CPower, CMIDIParser, CAppleMIDIHandler
 {
 public:
 	CMT32Pi(CI2CMaster* pI2CMaster, CSPIMaster* pSPIMaster, CInterruptSystem* pInterrupt, CGPIOManager* pGPIOManager, CSerialDevice* pSerialDevice, CUSBHCIDevice* pUSBHCI);
@@ -90,7 +99,13 @@ private:
 	virtual void OnUnexpectedStatus() override;
 	virtual void OnSysExOverflow() override;
 
+	// CAppleMIDIHandler
+	virtual void OnAppleMIDIDataReceived(const u8* pData, size_t nSize) override { ParseMIDIBytes(pData, nSize); };
+	virtual void OnAppleMIDIConnect(const CIPAddress* pIPAddress, const char* pName) override;
+	virtual void OnAppleMIDIDisconnect(const CIPAddress* pIPAddress, const char* pName) override;
+
 	// Initialization
+	bool InitNetwork();
 	bool InitMT32Synth();
 	bool InitSoundFontSynth();
 	bool InitPassthroughSynth();
@@ -101,6 +116,7 @@ private:
 	void AudioTask();
 
 	void UpdateUSB(bool bStartup = false);
+	void UpdateNetwork();
 	void UpdateMIDI();
 	size_t ReceiveSerialMIDI(u8* pOutData, size_t nSize);
 	bool ParseCustomSysEx(const u8* pData, size_t nSize);
@@ -121,6 +137,9 @@ private:
 
 	bool InitPCM51xx(u8 nAddress);
 
+	CLogger* volatile m_pLogger;
+	CConfig* volatile m_pConfig;
+
 	CTimer* m_pTimer;
 	CActLED* m_pActLED;
 
@@ -131,9 +150,23 @@ private:
 	CSerialDevice* m_pSerial;
 	CUSBHCIDevice* m_pUSBHCI;
 	FATFS m_USBFileSystem;
+	bool m_bUSBAvailable;
 
-	CSynthLCD* m_pLCD;
+	// Networking
+	CNetSubSystem* m_pNet;
+	CBcm4343Device m_WLAN;
+	CWPASupplicant m_WPASupplicant;
+	bool m_bNetworkReady;
+	CAppleMIDIParticipant* m_pAppleMIDIParticipant;
+
+	CBcmRandomNumberGenerator m_Random;
+
+	CLCD* m_pLCD;
 	unsigned m_nLCDUpdateTime;
+	CUserInterface m_UserInterface;
+#ifdef MONITOR_TEMPERATURE
+	unsigned m_nTempUpdateTime;
+#endif
 
 	CControl* m_pControl;
 
@@ -153,8 +186,9 @@ private:
 	bool m_bSerialMIDIAvailable;
 	bool m_bSerialMIDIEnabled;
 
-	// USB MIDI
-	CUSBMIDIDevice* volatile m_pUSBMIDIDevice;
+	// USB devices
+	CUSBMIDIDevice* m_pUSBMIDIDevice;
+	CUSBSerialDevice* m_pUSBSerialDevice;
 	CUSBBulkOnlyMassStorageDevice* volatile m_pUSBMassStorageDevice;
 
 	bool m_bActiveSenseFlag;
@@ -187,7 +221,9 @@ private:
 	static void EventHandler(const TEvent& Event);
 	static void USBMIDIDeviceRemovedHandler(CDevice* pDevice, void* pContext);
 	static void USBMIDIPacketHandler(unsigned nCable, u8* pPacket, unsigned nLength);
-	static void MIDIReceiveHandler(const u8* pData, size_t nSize);
+	static void IRQMIDIReceiveHandler(const u8* pData, size_t nSize);
+
+	static void PanicHandler();
 
 	static CMT32Pi* s_pThis;
 };

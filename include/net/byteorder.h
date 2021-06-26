@@ -1,5 +1,5 @@
 //
-// sysex.h
+// byteorder.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
 // Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
@@ -20,34 +20,23 @@
 // mt32-pi. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef _sysex_h
-#define _sysex_h
+#ifndef _byteorder_h
+#define _byteorder_h
 
-#include <circle/types.h>
-
-enum class TManufacturerID : u8
-{
-	Roland               = 0x41,
-	Yamaha               = 0x43,
-	UniversalNonRealTime = 0x7E,
-	UniversalRealTime    = 0x7F,
-};
-
-enum class TDeviceID : u8
-{
-	SoundCanvasDefault = 0x10, // The default device ID of Roland Sound Canvas modules
-	AllCall            = 0x7F,
-};
-
-enum class TUniversalSubID : u8
-{
-	GeneralMIDI = 0x09,
-};
-
-enum class TGeneralMIDISubID : u8
-{
-	GeneralMIDIOn  = 0x01,
-	GeneralMIDIOff = 0x02,
-};
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define htons(VALUE)  (VALUE)
+#define htonl(VALUE)  (VALUE)
+#define htonll(VALUE) (VALUE)
+#define ntohs(VALUE)  (VALUE)
+#define ntohl(VALUE)  (VALUE)
+#define ntohll(VALUE) (VALUE)
+#else
+#define htons(VALUE)  __builtin_bswap16(VALUE)
+#define htonl(VALUE)  __builtin_bswap32(VALUE)
+#define htonll(VALUE) __builtin_bswap64(VALUE)
+#define ntohs(VALUE)  __builtin_bswap16(VALUE)
+#define ntohl(VALUE)  __builtin_bswap32(VALUE)
+#define ntohll(VALUE) __builtin_bswap64(VALUE)
+#endif
 
 #endif

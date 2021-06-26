@@ -23,8 +23,13 @@
 #ifndef _config_h
 #define _config_h
 
+#include <circle/net/ipaddress.h>
+#include <circle/types.h>
+
 #include "control/rotaryencoder.h"
-#include "lcd/ssd1306.h"
+#include "lcd/drivers/ssd1306.h"
+#include "soundfontmanager.h"
+#include "synth/fxprofile.h"
 #include "synth/mt32romset.h"
 #include "synth/mt32synth.h"
 #include "utility.h"
@@ -39,7 +44,8 @@ public:
 
 	#define ENUM_AUDIOOUTPUTDEVICE(ENUM) \
 		ENUM(PWM, pwm)                   \
-		ENUM(I2SDAC, i2s)
+		ENUM(HDMI, hdmi)                 \
+		ENUM(I2S, i2s)
 
 	#define ENUM_AUDIOI2CDACINIT(ENUM) \
 		ENUM(None, none)               \
@@ -65,11 +71,17 @@ public:
 		ENUM(SH1106I2C, sh1106_i2c)        \
 		ENUM(SSD1306I2C, ssd1306_i2c)
 
+	#define ENUM_NETWORKMODE(ENUM) \
+		ENUM(Off, off)             \
+		ENUM(Ethernet, ethernet)   \
+		ENUM(WiFi, wifi)
+
 	CONFIG_ENUM(TSystemDefaultSynth, ENUM_SYSTEMDEFAULTSYNTH);
 	CONFIG_ENUM(TAudioOutputDevice, ENUM_AUDIOOUTPUTDEVICE);
 	CONFIG_ENUM(TAudioI2CDACInit, ENUM_AUDIOI2CDACINIT);
 	CONFIG_ENUM(TControlScheme, ENUM_CONTROLSCHEME);
 	CONFIG_ENUM(TLCDType, ENUM_LCDTYPE);
+	CONFIG_ENUM(TNetworkMode, ENUM_NETWORKMODE);
 
 	CConfig();
 	bool Initialize(const char* pPath);
@@ -80,6 +92,8 @@ public:
 	#define CFG(_1, TYPE, MEMBER_NAME, _2, _3...) TYPE MEMBER_NAME;
 	#include "config.def"
 
+	TFXProfile FXProfiles[CSoundFontManager::MaxSoundFonts];
+
 private:
 	static int INIHandler(void* pUser, const char* pSection, const char* pName, const char* pValue);
 
@@ -87,6 +101,8 @@ private:
 	static bool ParseOption(const char* pString, bool* pOut);
 	static bool ParseOption(const char* pString, int* pOut, bool bHex = false);
 	static bool ParseOption(const char* pString, float* pOutFloat);
+	static bool ParseOption(const char *pString, CString* pOut);
+	static bool ParseOption(const char *pString, CIPAddress* pOut);
 	static bool ParseOption(const char* pString, TSystemDefaultSynth* pOut);
 	static bool ParseOption(const char* pString, TAudioOutputDevice* pOut);
 	static bool ParseOption(const char* pString, TAudioI2CDACInit* pOut);
@@ -97,6 +113,10 @@ private:
 	static bool ParseOption(const char* pString, TControlScheme* pOut);
 	static bool ParseOption(const char* pString, TEncoderType* pOut);
 	static bool ParseOption(const char* pString, TLCDRotation* pOut);
+	static bool ParseOption(const char* pString, TNetworkMode* pOut);
+
+	static bool ParseFXProfileSection(const char* pSection, size_t* pOutFXProfileIndex);
+	static bool ParseFXProfileOption(const char* pString, const char* pValue, TFXProfile* pOutFXProfile);
 
 	static CConfig* s_pThis;
 };

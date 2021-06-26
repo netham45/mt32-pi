@@ -25,6 +25,7 @@
 #include <circle/timer.h>
 
 #include "config.h"
+#include "lcd/ui.h"
 #include "synth/gmsysex.h"
 #include "synth/rolandsysex.h"
 #include "synth/soundfontsynth.h"
@@ -137,6 +138,7 @@ CSoundFontSynth::CSoundFontSynth(unsigned nSampleRate, float nGain, u32 nPolypho
 	  m_nCurrentGain(nGain),
 
 	  m_nPolyphony(nPolyphony),
+	  m_nPercussionMask(1 << 9),
 	  m_nCurrentSoundFontIndex(0)
 {
 }
@@ -157,16 +159,21 @@ void CSoundFontSynth::FluidSynthLogCallback(int nLevel, const char* pMessage, vo
 
 bool CSoundFontSynth::Initialize()
 {
+	const CConfig* const pConfig = CConfig::Get();
+
 	if (!m_SoundFontManager.ScanSoundFonts())
 		return false;
 
 	// Try to get preferred SoundFont
-	m_nCurrentSoundFontIndex  = CConfig::Get()->FluidSynthSoundFont;
+	m_nCurrentSoundFontIndex = pConfig->FluidSynthSoundFont;
 	const char* pSoundFontPath = m_SoundFontManager.GetSoundFontPath(m_nCurrentSoundFontIndex);
 
 	// Fall back on first available SoundFont
 	if (!pSoundFontPath)
+	{
 		pSoundFontPath = m_SoundFontManager.GetFirstValidSoundFontPath();
+		m_nCurrentSoundFontIndex = 0;
+	}
 
 	// Give up
 	if (!pSoundFontPath)
@@ -186,10 +193,12 @@ bool CSoundFontSynth::Initialize()
 		return false;
 	}
 
+	// Set device ID to match the default Roland Sound Canvas ID so that it recognises some GS SysEx messages
+	fluid_settings_setint(m_pSettings, "synth.device-id", static_cast<int>(TDeviceID::SoundCanvasDefault));
 	fluid_settings_setnum(m_pSettings, "synth.sample-rate", static_cast<double>(m_nSampleRate));
 	fluid_settings_setint(m_pSettings, "synth.threadsafe-api", false);
 
-	return Reinitialize(pSoundFontPath);
+	return Reinitialize(pSoundFontPath, &pConfig->FXProfiles[m_nCurrentSoundFontIndex]);
 }
 
 void CSoundFontSynth::HandleMIDIShortMessage(u32 nMessage)
@@ -250,6 +259,9 @@ void CSoundFontSynth::HandleMIDIShortMessage(u32 nMessage)
 	}
 
 	m_Lock.Release();
+
+	// Update MIDI monitor
+	CSynthBase::HandleMIDIShortMessage(nMessage);
 }
 
 void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
@@ -259,45 +271,31 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 	{
 		const auto& GMModeOnMessage = reinterpret_cast<const TGMModeOnSysExMessage&>(*pData);
 		if (GMModeOnMessage.IsValid())
-		{
-			m_Lock.Acquire();
-			fluid_synth_system_reset(m_pSynth);
-			m_Lock.Release();
-			return;
-		}
+			ResetMIDIMonitor();
 	}
 
 	// Single data byte Roland message
 	else if (nSize == RolandSingleDataByteMessageSize)
 	{
-		// GS Reset/SC-88 Mode Set
 		const auto& GSResetMessage = reinterpret_cast<const TRolandGSResetSysExMessage&>(*pData);
 		const auto& SystemModeSetMessage = reinterpret_cast<const TRolandSystemModeSetSysExMessage&>(*pData);
+		const auto& UseForRhythmPartMessage = reinterpret_cast<const TRolandUseForRhythmPartSysExMessage&>(*pData);
+
+		// GS Reset/SC-88 Mode Set		
 		if (GSResetMessage.IsValid() || SystemModeSetMessage.IsValid())
-		{
-			m_Lock.Acquire();
-			fluid_synth_system_reset(m_pSynth);
-			m_Lock.Release();
-			return;
-		}
+			ResetMIDIMonitor();
 
 		// Use For Rhythm Part
-		const auto& UseForRhythmPartMessage = reinterpret_cast<const TRolandUseForRhythmPartSysExMessage&>(*pData);
-		if (UseForRhythmPartMessage.IsValid())
+		else if (UseForRhythmPartMessage.IsValid())
 		{
+			// TODO: If FluidSynth had an API to query the channel mode we wouldn't need to keep track of it
 			const u8 nChannel = (UseForRhythmPartMessage.GetAddress() >> 8) & 0x0F;
-			const u8 nMode    = *UseForRhythmPartMessage.GetData();
-
-			if (nMode > 0x02)
-				return;
-
-			m_Lock.Acquire();
-			fluid_synth_set_channel_type(m_pSynth, nChannel, nMode == 0 ? CHANNEL_TYPE_MELODIC : CHANNEL_TYPE_DRUM);
-			fluid_synth_program_change(m_pSynth, nChannel, 0);
-			m_Lock.Release();
-			return;
+			const u8 nMode    = *UseForRhythmPartMessage.GetData() ? 1 : 0;
+			m_nPercussionMask ^= (-nMode ^ m_nPercussionMask) & (1 << nChannel);
 		}
 	}
+
+	// TODO: XG Mode On reset for MIDI monitor
 
 	// SC-55 display message?
 	else if (nSize == sizeof(TSC55DisplayTextSysExMessage))
@@ -306,8 +304,8 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 		if (DisplayTextMessage.IsValid())
 		{
 			const char* pMessage = reinterpret_cast<const char*>(DisplayTextMessage.GetData());
-			if (m_pLCD)
-				m_pLCD->OnSC55DisplayText(pMessage);
+			if (m_pUI)
+				m_pUI->ShowSC55Text(pMessage);
 			return;
 		}
 	}
@@ -316,15 +314,15 @@ void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 		const auto& DisplayDotsMessage = reinterpret_cast<const TSC55DisplayDotsSysExMessage&>(*pData);
 		if (DisplayDotsMessage.IsValid())
 		{
-			if (m_pLCD)
-				m_pLCD->OnSC55DisplayDots(DisplayDotsMessage.GetData());
+			if (m_pUI)
+				m_pUI->ShowSC55Dots(DisplayDotsMessage.GetData());
 			return;
 		}
 	}
 
 	// No special handling; forward to FluidSynth SysEx parser, excluding leading 0xF0 and trailing 0xF7
 	m_Lock.Acquire();
-	fluid_synth_sysex(m_pSynth, reinterpret_cast<const char*>(pData + 1), nSize - 1, nullptr, nullptr, nullptr, false);
+	fluid_synth_sysex(m_pSynth, reinterpret_cast<const char*>(pData + 1), nSize - 2, nullptr, nullptr, nullptr, false);
 	m_Lock.Release();
 }
 
@@ -342,6 +340,9 @@ void CSoundFontSynth::AllSoundOff()
 	m_Lock.Acquire();
 	fluid_synth_all_sounds_off(m_pSynth, -1);
 	m_Lock.Release();
+
+	// Reset MIDI monitor
+	CSynthBase::AllSoundOff();
 }
 
 void CSoundFontSynth::SetMasterVolume(u8 nVolume)
@@ -368,42 +369,18 @@ size_t CSoundFontSynth::Render(s16* pOutBuffer, size_t nFrames)
 	return nFrames;
 }
 
-u8 CSoundFontSynth::GetChannelVelocities(u8* pOutVelocities, size_t nMaxChannels)
-{
-	nMaxChannels = Utility::Min(nMaxChannels, static_cast<size_t>(16));
-
-	m_Lock.Acquire();
-
-	const size_t nVoices = fluid_synth_get_polyphony(m_pSynth);
-
-	// Null-terminated
-	fluid_voice_t* Voices[nVoices + 1];
-	fluid_voice_t** pCurrentVoice = Voices;
-
-	// Initialize output array
-	memset(Voices, 0, (nVoices + 1) * sizeof(*Voices));
-	memset(pOutVelocities, 0, nMaxChannels);
-
-	fluid_synth_get_voicelist(m_pSynth, Voices, nVoices, -1);
-
-	while (*pCurrentVoice)
-	{
-		const u8 nChannel = fluid_voice_get_channel(*pCurrentVoice);
-		const u8 nVelocity = fluid_voice_is_on(*pCurrentVoice) ? fluid_voice_get_actual_velocity(*pCurrentVoice) : 0;
-
-		pOutVelocities[nChannel] = Utility::Max(pOutVelocities[nChannel], nVelocity);
-		++pCurrentVoice;
-	}
-
-	m_Lock.Release();
-
-	return nMaxChannels;
-}
-
 void CSoundFontSynth::ReportStatus() const
 {
-	if (m_pLCD)
-		m_pLCD->OnSystemMessage(m_SoundFontManager.GetSoundFontName(m_nCurrentSoundFontIndex));
+	if (m_pUI)
+		m_pUI->ShowSystemMessage(m_SoundFontManager.GetSoundFontName(m_nCurrentSoundFontIndex));
+}
+
+void CSoundFontSynth::UpdateLCD(CLCD& LCD, unsigned int nTicks)
+{
+	const u8 nBarHeight = LCD.Height();
+	float ChannelLevels[16], PeakLevels[16];
+	m_MIDIMonitor.GetChannelLevels(nTicks, ChannelLevels, PeakLevels, m_nPercussionMask);
+	CUserInterface::DrawChannelLevels(LCD, nBarHeight, ChannelLevels, PeakLevels, 16, true);
 }
 
 bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
@@ -411,8 +388,8 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	// Is this SoundFont already active?
 	if (m_nCurrentSoundFontIndex == nIndex)
 	{
-		if (m_pLCD)
-			m_pLCD->OnSystemMessage("Already selected!");
+		if (m_pUI)
+			m_pUI->ShowSystemMessage("Already selected!");
 		return false;
 	}
 
@@ -420,19 +397,19 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	const char* pSoundFontPath = m_SoundFontManager.GetSoundFontPath(nIndex);
 	if (!pSoundFontPath)
 	{
-		if (m_pLCD)
-			m_pLCD->OnSystemMessage("SoundFont not avail!");
+		if (m_pUI)
+			m_pUI->ShowSystemMessage("SoundFont not avail!");
 		return false;
 	}
 
-	if (m_pLCD)
-		m_pLCD->OnSystemMessage("Loading SoundFont", true);
+	if (m_pUI)
+		m_pUI->ShowSystemMessage("Loading SoundFont", true);
 
 	// We can't use fluid_synth_sfunload() as we don't support the lazy SoundFont unload timer, so trash the entire synth and create a new one
-	if (!Reinitialize(pSoundFontPath))
+	if (!Reinitialize(pSoundFontPath, &CConfig::Get()->FXProfiles[nIndex]))
 	{
-		if (m_pLCD)
-			m_pLCD->OnSystemMessage("SF switch failed!");
+		if (m_pUI)
+			m_pUI->ShowSystemMessage("SF switch failed!");
 
 		return false;
 	}
@@ -440,14 +417,17 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	m_nCurrentSoundFontIndex = nIndex;
 
 	CLogger::Get()->Write(SoundFontSynthName, LogNotice, "Loaded \"%s\"", m_SoundFontManager.GetSoundFontName(nIndex));
-	if (m_pLCD)
-		m_pLCD->ClearSpinnerMessage();
+	if (m_pUI)
+		m_pUI->ClearSpinnerMessage();
 
 	return true;
 }
 
-bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath)
+bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath, const TFXProfile* pFXProfile)
 {
+	const CConfig* const pConfig = CConfig::Get();
+	CLogger* const pLogger = CLogger::Get();
+
 	m_Lock.Acquire();
 
 	if (m_pSynth)
@@ -458,12 +438,31 @@ bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath)
 	if (!m_pSynth)
 	{
 		m_Lock.Release();
-		CLogger::Get()->Write(SoundFontSynthName, LogError, "Failed to create synth");
+		pLogger->Write(SoundFontSynthName, LogError, "Failed to create synth");
 		return false;
 	}
 
 	fluid_synth_set_gain(m_pSynth, m_nCurrentGain);
 	fluid_synth_set_polyphony(m_pSynth, m_nPolyphony);
+
+	// Use values from effects profile if set, otherwise use defaults
+	fluid_synth_reverb_on(m_pSynth, -1, pFXProfile->bReverbActive.ValueOr(pConfig->FluidSynthDefaultReverbActive));
+	fluid_synth_set_reverb_group_damp(m_pSynth, -1, pFXProfile->nReverbDamping.ValueOr(pConfig->FluidSynthDefaultReverbDamping));
+	fluid_synth_set_reverb_group_level(m_pSynth, -1, pFXProfile->nReverbLevel.ValueOr(pConfig->FluidSynthDefaultReverbLevel));
+	fluid_synth_set_reverb_group_roomsize(m_pSynth, -1, pFXProfile->nReverbRoomSize.ValueOr(pConfig->FluidSynthDefaultReverbRoomSize));
+	fluid_synth_set_reverb_group_width(m_pSynth, -1, pFXProfile->nReverbWidth.ValueOr(pConfig->FluidSynthDefaultReverbWidth));
+
+	fluid_synth_chorus_on(m_pSynth, -1,	pFXProfile->bChorusActive.ValueOr(pConfig->FluidSynthDefaultChorusActive));
+	fluid_synth_set_chorus_group_depth(m_pSynth, -1, pFXProfile->nChorusDepth.ValueOr(pConfig->FluidSynthDefaultChorusDepth));
+	fluid_synth_set_chorus_group_level(m_pSynth, -1, pFXProfile->nChorusLevel.ValueOr(pConfig->FluidSynthDefaultChorusLevel));
+	fluid_synth_set_chorus_group_nr(m_pSynth, -1, pFXProfile->nChorusVoices.ValueOr(pConfig->FluidSynthDefaultChorusVoices));
+	fluid_synth_set_chorus_group_speed(m_pSynth, -1, pFXProfile->nChorusSpeed.ValueOr(pConfig->FluidSynthDefaultChorusSpeed));
+
+#ifndef NDEBUG
+	DumpFXSettings();
+#endif
+
+	ResetMIDIMonitor();
 
 	m_Lock.Release();
 
@@ -471,12 +470,54 @@ bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath)
 
 	if (fluid_synth_sfload(m_pSynth, pSoundFontPath, true) == FLUID_FAILED)
 	{
-		CLogger::Get()->Write(SoundFontSynthName, LogError, "Failed to load SoundFont");
+		pLogger->Write(SoundFontSynthName, LogError, "Failed to load SoundFont");
 		return false;
 	}
 
 	const float nLoadTime = (CTimer::GetClockTicks() - nLoadStart) / 1000000.0f;
-	CLogger::Get()->Write(SoundFontSynthName, TLogSeverity::LogNotice, "\"%s\" loaded in %0.2f seconds", pSoundFontPath, nLoadTime);
+	pLogger->Write(SoundFontSynthName, TLogSeverity::LogNotice, "\"%s\" loaded in %0.2f seconds", pSoundFontPath, nLoadTime);
 
 	return true;
 }
+
+void CSoundFontSynth::ResetMIDIMonitor()
+{
+	m_MIDIMonitor.AllNotesOff();
+	m_MIDIMonitor.ResetControllers(false);
+	m_nPercussionMask = 1 << 9;
+}
+
+#ifndef NDEBUG
+void CSoundFontSynth::DumpFXSettings() const
+{
+	CLogger* const pLogger = CLogger::Get();
+	double nReverbDamping, nReverbLevel, nReverbRoomSize, nReverbWidth, nChorusDepth, nChorusLevel, nChorusSpeed;
+	int nChorusVoices;
+
+	assert(fluid_synth_get_reverb_group_damp(m_pSynth, -1, &nReverbDamping) == FLUID_OK);
+	assert(fluid_synth_get_reverb_group_level(m_pSynth, -1, &nReverbLevel) == FLUID_OK);
+	assert(fluid_synth_get_reverb_group_roomsize(m_pSynth, -1, &nReverbRoomSize) == FLUID_OK);
+	assert(fluid_synth_get_reverb_group_width(m_pSynth, -1, &nReverbWidth) == FLUID_OK);
+
+	assert(fluid_synth_get_chorus_group_depth(m_pSynth, -1, &nChorusDepth) == FLUID_OK);
+	assert(fluid_synth_get_chorus_group_level(m_pSynth, -1, &nChorusLevel) == FLUID_OK);
+	assert(fluid_synth_get_chorus_group_nr(m_pSynth, -1, &nChorusVoices) == FLUID_OK);
+	assert(fluid_synth_get_chorus_group_speed(m_pSynth, -1, &nChorusSpeed) == FLUID_OK);
+
+	pLogger->Write(SoundFontSynthName, LogNotice,
+		"Reverb: %.2f, %.2f, %.2f, %.2f",
+		nReverbDamping,
+		nReverbLevel,
+		nReverbRoomSize,
+		nReverbWidth
+	);
+
+	pLogger->Write(SoundFontSynthName, LogNotice,
+		"Chorus: %.2f, %.2f, %d, %.2f",
+		nChorusDepth,
+		nChorusLevel,
+		nChorusVoices,
+		nChorusSpeed
+	);
+}
+#endif

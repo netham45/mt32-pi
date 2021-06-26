@@ -20,7 +20,7 @@ jobs:
 
     - name: Cache ARM toolchains
       id: cache-toolchains
-      uses: actions/cache@v2.1.5
+      uses: actions/cache@v2.1.6
       with:
         path: |
           ~/gcc-arm-${{ env.toolchain-version }}-x86_64-arm-none-eabi
@@ -65,6 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       boot-home: external/circle-stdlib/libs/circle/boot
+      wlan-home: external/circle-stdlib/libs/circle/addon/wlan
 
     steps:
     - uses: actions/checkout@v2.3.4
@@ -73,11 +74,13 @@ jobs:
 
     - name: Cache boot files
       id: cache-boot-files
-      uses: actions/cache@v2.1.5
+      uses: actions/cache@v2.1.6
       with:
         path: |
           sdcard/armstub8-rpi4.bin
           sdcard/bcm2711-rpi-4-b.dtb
+          sdcard/bcm2711-rpi-400.dtb
+          sdcard/bcm2711-rpi-cm4.dtb
           sdcard/bootcode.bin
           sdcard/COPYING.linux
           sdcard/fixup_cd.dat
@@ -87,9 +90,16 @@ jobs:
           sdcard/start4cd.elf
         key: cache-boot-files-${{ hashFiles(join(env.boot-home, '/Makefile')) }}
 
+    - name: Cache WLAN firmware
+      id: cache-wlan-firmware
+      uses: actions/cache@v2.1.4
+      with:
+        path: sdcard/firmware
+        key: cache-wlan-firmware-${{ hashFiles(join(env.wlan-home, '/firmware/Makefile')) }}
+
     - name: Cache ARM toolchains
       if: steps.cache-boot-files.outputs.cache-hit != 'true'
-      uses: actions/cache@v2.1.5
+      uses: actions/cache@v2.1.6
       with:
         path: |
           ~/gcc-arm-${{ env.toolchain-version }}-x86_64-arm-none-eabi
@@ -109,6 +119,8 @@ jobs:
         make -C ${{ env.boot-home }} firmware armstub64
         cp  ${{ env.boot-home }}/armstub8-rpi4.bin \
             ${{ env.boot-home }}/bcm2711-rpi-4-b.dtb \
+            ${{ env.boot-home }}/bcm2711-rpi-400.dtb \
+            ${{ env.boot-home }}/bcm2711-rpi-cm4.dtb \
             ${{ env.boot-home }}/bootcode.bin \
             ${{ env.boot-home }}/COPYING.linux \
             ${{ env.boot-home }}/fixup_cd.dat \
@@ -118,9 +130,25 @@ jobs:
             ${{ env.boot-home }}/start4cd.elf \
             sdcard
 
+    - name: Download WLAN firmware if not retrieved from cache
+      if: steps.cache-wlan-firmware.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p sdcard/firmware
+        make -C ${{ env.wlan-home }}/firmware
+        cp  ${{ env.wlan-home }}/firmware/LICENCE.broadcom_bcm43xx \
+            ${{ env.wlan-home }}/firmware/brcmfmac43430-sdio.bin \
+            ${{ env.wlan-home }}/firmware/brcmfmac43430-sdio.txt \
+            ${{ env.wlan-home }}/firmware/brcmfmac43455-sdio.bin \
+            ${{ env.wlan-home }}/firmware/brcmfmac43455-sdio.txt \
+            ${{ env.wlan-home }}/firmware/brcmfmac43455-sdio.clm_blob \
+            ${{ env.wlan-home }}/firmware/brcmfmac43456-sdio.bin \
+            ${{ env.wlan-home }}/firmware/brcmfmac43456-sdio.txt \
+            ${{ env.wlan-home }}/firmware/brcmfmac43456-sdio.clm_blob \
+            sdcard/firmware
+
     - name: Cache GeneralUser GS SoundFont
       id: cache-generaluser-gs
-      uses: actions/cache@v2.1.5
+      uses: actions/cache@v2.1.6
       with:
         path: GeneralUser GS v1.511
         key: cache-generaluser-gs-1.511
@@ -171,13 +199,13 @@ jobs:
         PRE_RELEASE: "false"
         CHANGELOG_FILE: "CHANGELOG.md"
         ALLOW_EMPTY_CHANGELOG: "false"
-        ALLOW_TAG_PREFIX: "true"
       with:
         args: |
             mt32-pi-*.zip
 
-    - name: Notify Discord of release
+    - name: Notify Discord servers of release
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         sudo pip3 install keepachangelog discord-webhook
-        .github/scripts/discord_notify.py ${{ secrets.DISCORD_WEBHOOK }} ${{ steps.get_version.outputs.version }}
+        .github/scripts/discord_notify.py ${{ secrets.MISTER_DISCORD_WEBHOOK }} ${{ steps.get_version.outputs.version }}
+        .github/scripts/discord_notify.py ${{ secrets.FPGAMING_DISCORD_WEBHOOK }} ${{ steps.get_version.outputs.version }}

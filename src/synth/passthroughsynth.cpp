@@ -35,9 +35,6 @@
 CPassthroughSynth::CPassthroughSynth(unsigned nSampleRate, float nGain, u32 nPolyphony)
 	: CSynthBase(nSampleRate),
 
-	  m_pSettings(nullptr),
-	  m_pSynth(nullptr),
-
 	  m_nInitialGain(nGain),
 	  m_nCurrentGain(nGain),
 
@@ -92,11 +89,6 @@ size_t CPassthroughSynth::Render(s16* pOutBuffer, size_t nFrames)
 	return nFrames;
 }
 
-u8 CPassthroughSynth::GetChannelVelocities(u8* pOutVelocities, size_t nMaxChannels)
-{
-	return nMaxChannels;
-}
-
 void CPassthroughSynth::ReportStatus() const
 {
 //	if (m_pLCD)
@@ -111,4 +103,8 @@ bool CPassthroughSynth::SwitchSoundFont(size_t nIndex)
 bool CPassthroughSynth::Reinitialize(const char* pSoundFontPath)
 {
 	return true;
+}
+
+void CPassthroughSynth::UpdateLCD(CLCD& LCD, unsigned int nTicks)
+{
 }

@@ -1,5 +1,5 @@
 //
-// clcd.h
+// fxprofile.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
 // Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
@@ -20,28 +20,24 @@
 // mt32-pi. If not, see <http://www.gnu.org/licenses/>.
 //
 
-#ifndef _clcd_h
-#define _clcd_h
+#ifndef _fxprofile_h
+#define _fxprofile_h
 
-#include <circle/types.h>
+#include "optional.h"
 
-class CCharacterLCD
+struct TFXProfile
 {
-public:
-	CCharacterLCD()
-		: m_bBacklightEnabled(true)
-	{
-	}
+	TOptional<bool> bReverbActive;
+	TOptional<float> nReverbDamping;
+	TOptional<float> nReverbLevel;
+	TOptional<float> nReverbRoomSize;
+	TOptional<float> nReverbWidth;
 
-	virtual ~CCharacterLCD() = default;
-
-	virtual bool Initialize() = 0;
-	virtual void Print(const char* pText, u8 nCursorX = 0, u8 nCursorY = 0, bool bClearLine = false, bool bImmediate = true) = 0;
-	virtual void Clear(bool bImmediate = true) = 0;
-	virtual void SetBacklightEnabled(bool bEnabled) { m_bBacklightEnabled = bEnabled; }
-
-protected:
-	bool m_bBacklightEnabled;
+	TOptional<bool> bChorusActive;
+	TOptional<float> nChorusDepth;
+	TOptional<float> nChorusLevel;
+	TOptional<int> nChorusVoices;
+	TOptional<float> nChorusSpeed;
 };
 
 #endif
