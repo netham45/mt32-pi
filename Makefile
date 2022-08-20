@@ -16,7 +16,8 @@ $(CIRCLE_STDLIB_CONFIG) $(CIRCLE_CONFIG)&:
 	$(CIRCLESTDLIBHOME)/configure --raspberrypi=$(RASPBERRYPI) --prefix=$(PREFIX)
 
 	# Apply patches
-	@patch -N -p1 --no-backup-if-mismatch -r - -d $(CIRCLEHOME) < patches/circle-44-minimal-usb-drivers.patch
+	@patch -N -p1 --no-backup-if-mismatch -r - -d $(CIRCLEHOME) < patches/circle-44.5-revert-firmware.patch
+	@patch -N -p1 --no-backup-if-mismatch -r - -d $(CIRCLEHOME) < patches/circle-44.4-minimal-usb-drivers.patch
 
 ifeq ($(strip $(GC_SECTIONS)),1)
 	# Enable function/data sections for circle-stdlib
@@ -31,6 +32,9 @@ endif
 
 	# Improve I/O throughput
 	echo "DEFINE += -DNO_BUSY_WAIT" >> $(CIRCLE_CONFIG)
+
+	# Enable PWM audio output on GPIO 12/13 for the Pi Zero 2 W
+	echo "DEFINE += -DUSE_PWM_AUDIO_ON_ZERO" >> $(CIRCLE_CONFIG)
 
 #
 # Build circle-stdlib
@@ -66,7 +70,7 @@ $(MT32EMUBUILDDIR)/.done: $(CIRCLESTDLIBHOME)/.done
 fluidsynth: $(FLUIDSYNTHBUILDDIR)/.done
 
 $(FLUIDSYNTHBUILDDIR)/.done: $(CIRCLESTDLIBHOME)/.done
-	@patch -N -p1 --no-backup-if-mismatch -r - -d $(FLUIDSYNTHHOME) < patches/fluidsynth-2.2.1-circle.patch
+	@patch -N -p1 --no-backup-if-mismatch -r - -d $(FLUIDSYNTHHOME) < patches/fluidsynth-2.2.7-circle.patch
 
 	@export CFLAGS="$(CFLAGS_FOR_TARGET)"
 	@cmake  -B $(FLUIDSYNTHBUILDDIR) \
@@ -117,8 +121,9 @@ clean:
 #
 veryclean: clean
 	# Reverse patches
-	@patch -R -N -p1 --no-backup-if-mismatch -r - -d $(CIRCLEHOME) < patches/circle-44-minimal-usb-drivers.patch
-	@patch -R -N -p1 --no-backup-if-mismatch -r - -d $(FLUIDSYNTHHOME) < patches/fluidsynth-2.2.1-circle.patch
+	@patch -R -N -p1 --no-backup-if-mismatch -r - -d $(CIRCLEHOME) < patches/circle-44.4-minimal-usb-drivers.patch
+	@patch -R -N -p1 --no-backup-if-mismatch -r - -d $(CIRCLEHOME) < patches/circle-44.5-revert-firmware.patch
+	@patch -R -N -p1 --no-backup-if-mismatch -r - -d $(FLUIDSYNTHHOME) < patches/fluidsynth-2.2.7-circle.patch
 
 	# Clean circle-stdlib
 	@$(MAKE) -C $(CIRCLESTDLIBHOME) mrproper

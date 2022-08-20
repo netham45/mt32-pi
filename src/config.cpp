@@ -2,7 +2,7 @@
 // config.cpp
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -59,7 +59,6 @@ const char* FalseStrings[] = {"false", "off", "0"};
 // Enum string tables
 CONFIG_ENUM_STRINGS(TSystemDefaultSynth, ENUM_SYSTEMDEFAULTSYNTH);
 CONFIG_ENUM_STRINGS(TAudioOutputDevice, ENUM_AUDIOOUTPUTDEVICE);
-CONFIG_ENUM_STRINGS(TAudioI2CDACInit, ENUM_AUDIOI2CDACINIT);
 CONFIG_ENUM_STRINGS(TMT32EmuResamplerQuality, ENUM_RESAMPLERQUALITY);
 CONFIG_ENUM_STRINGS(TMT32EmuMIDIChannels, ENUM_MIDICHANNELS);
 CONFIG_ENUM_STRINGS(TMT32EmuROMSet, ENUM_MT32ROMSET);
@@ -67,6 +66,7 @@ CONFIG_ENUM_STRINGS(TLCDType, ENUM_LCDTYPE);
 CONFIG_ENUM_STRINGS(TControlScheme, ENUM_CONTROLSCHEME);
 CONFIG_ENUM_STRINGS(TEncoderType, ENUM_ENCODERTYPE);
 CONFIG_ENUM_STRINGS(TLCDRotation, ENUM_LCDROTATION);
+CONFIG_ENUM_STRINGS(TLCDMirror, ENUM_LCDMIRROR);
 CONFIG_ENUM_STRINGS(TNetworkMode, ENUM_NETWORKMODE);
 
 CConfig* CConfig::s_pThis = nullptr;
@@ -89,8 +89,9 @@ bool CConfig::Initialize(const char* pPath)
 		return false;
 	}
 
+	// +1 byte for null terminator
 	const UINT nSize = f_size(&File);
-	char Buffer[nSize];
+	char Buffer[nSize + 1];
 	UINT nRead;
 
 	if (f_read(&File, Buffer, nSize, &nRead) != FR_OK)
@@ -99,6 +100,9 @@ bool CConfig::Initialize(const char* pPath)
 		f_close(&File);
 		return false;
 	}
+
+	// Ensure null-terminated
+	Buffer[nRead] = '\0';
 
 	const int nResult = ini_parse_string(Buffer, INIHandler, this);
 	if (nResult > 0)
@@ -109,58 +113,11 @@ bool CConfig::Initialize(const char* pPath)
 
 }
 
-bool CConfig::ParseFXProfileSection(const char* pSection, size_t* pOutFXProfileIndex)
-{
-	constexpr char SectionPrefix[] = "fluidsynth.soundfont.";
-	if (!strstr(pSection, SectionPrefix))
-		return false;
-
-	const char* const pProfileName = &pSection[sizeof(SectionPrefix) - 1];
-	char* pEnd;
-
-	size_t nIndex = strtoull(pProfileName, &pEnd, 10);
-	if (pEnd == pProfileName || *pEnd != '\0' || nIndex >= CSoundFontManager::MaxSoundFonts)
-		return false;
-
-	*pOutFXProfileIndex = nIndex;
-	return true;
-}
-
-bool CConfig::ParseFXProfileOption(const char* pString, const char* pValue, TFXProfile* pOutFXProfile)
-{
-	#define MATCH(NAME, TYPE, STRUCT_MEMBER)                       \
-		if (!strcmp(NAME, pString))                                \
-		{                                                          \
-			auto Temp = decltype(*pOutFXProfile->STRUCT_MEMBER){}; \
-			if (ParseOption(pValue, &Temp))                        \
-			{                                                      \
-				pOutFXProfile->STRUCT_MEMBER = Temp;               \
-				return true;                                       \
-			}                                                      \
-			return false;                                          \
-		}
-
-	MATCH("reverb", bool, bReverbActive);
-	MATCH("reverb_damping", float, nReverbDamping);
-	MATCH("reverb_level", float, nReverbLevel);
-	MATCH("reverb_room_size", float, nReverbRoomSize);
-	MATCH("reverb_width", float, nReverbWidth);
-
-	MATCH("chorus", bool, bChorusActive);
-	MATCH("chorus_depth", float, nChorusDepth);
-	MATCH("chorus_level", float, nChorusLevel);
-	MATCH("chorus_voices", int, nChorusVoices);
-	MATCH("chorus_speed", float, nChorusSpeed);
-
-	#undef MATCH
-
-	return false;
-}
-
 int CConfig::INIHandler(void* pUser, const char* pSection, const char* pName, const char* pValue)
 {
 	CConfig* const pConfig = static_cast<CConfig*>(pUser);
-	size_t nFXProfileIndex;
+
+	//CLogger::Get()->Write(ConfigName, LogDebug, "'%s', '%s', '%s'", pSection, pName,  pValue);
 
 	// Automatically generate ParseOption() calls from macro definition file
 	#define BEGIN_SECTION(SECTION)       \
@@ -176,10 +133,6 @@ int CConfig::INIHandler(void* pUser, const char* pSection, const char* pName, co
 		}
 
 	#include "config.def"
-
-	// Special handling for SoundFont effects profiles
-	if (ParseFXProfileSection(pSection, &nFXProfileIndex))
-		return ParseFXProfileOption(pName, pValue, &pConfig->FXProfiles[nFXProfileIndex]);
 
 	return 0;
 }
@@ -250,7 +203,6 @@ bool CConfig::ParseOption(const char* pString, CIPAddress* pOut)
 // Define template function wrappers for parsing enums
 CONFIG_ENUM_PARSER(TSystemDefaultSynth);
 CONFIG_ENUM_PARSER(TAudioOutputDevice);
-CONFIG_ENUM_PARSER(TAudioI2CDACInit);
 CONFIG_ENUM_PARSER(TMT32EmuResamplerQuality);
 CONFIG_ENUM_PARSER(TMT32EmuMIDIChannels);
 CONFIG_ENUM_PARSER(TMT32EmuROMSet);
@@ -258,4 +210,5 @@ CONFIG_ENUM_PARSER(TLCDType);
 CONFIG_ENUM_PARSER(TControlScheme);
 CONFIG_ENUM_PARSER(TEncoderType);
 CONFIG_ENUM_PARSER(TLCDRotation);
+CONFIG_ENUM_PARSER(TLCDMirror);
 CONFIG_ENUM_PARSER(TNetworkMode);

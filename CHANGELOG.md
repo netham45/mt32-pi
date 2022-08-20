@@ -7,6 +7,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2022-06-14
+
+### Fixed
+
+- I²C communications failure on MiSTer introduced with newer Raspberry Pi firmware. The previous firmware version has been restored until this is resolved.
+
+## [0.12.0] - 2022-06-13
+
+### Added
+
+- Support for SSD1305 displays via a temporary hack (assume SSD1305 when `width` is set to 132). Further details in the wiki.
+- Support for WM8960 DACs (e.g. Waveshare WM8960 Audio HAT).
+
+### Changed
+
+- Update to circle-stdlib v15.13/Circle Step 44.5.
+- Update to libmt32emu v2.6.3.
+- Update to FluidSynth v2.2.7.
+- The `i2c_dac_address` and `i2c_dac_init` configuration options have been deprecated and have no longer have any effect. DACs requiring initialization are now automatically detected.
+- The `[fluidsynth.soundfont.x]` sections have now been deprecated. SoundFont effects profiles must now be stored in separate .cfg files, with the same file name as the SoundFont (minus extension). This means that file index no longer influences SoundFont settings. See `soundfonts/GeneralUser GS v1.511.cfg` for an example.
+- The maximum number of SoundFonts has been increased to 512.
+- Updater: deprecated options are now removed when merging configs.
+- Installer: missing tools (e.g. `dialog`, `jq`) are now reported if they are missing from the system.
+
+### Fixed
+
+- HDMI audio channels were reversed.
+- USB MIDI device stability improvements.
+
+## [0.11.3] - 2022-04-13
+
+### Changed
+
+- Update to inih r55.
+
+### Fixed
+
+- Ethernet connectivity was broken on some Raspberry Pi models. Thanks to Sal Bugliarisi, retro and MorkMikael for the reports!
+- Network disconnection/reconnection notifications were broken.
+
+## [0.11.2] - 2022-03-25
+
+### Added
+
+- Support for network MIDI via raw UDP socket (new configuration file option). This is compatible with [MiSTer MidiLink](https://github.com/bbond007/MiSTer_MidiLink).
+- New Bash/Python scripts for making the installation/update process easier, especially on MiSTer FPGA (see the [scripts directory](https://github.com/dwhinham/mt32-pi/tree/master/scripts) for download/information).
+
+### Changed
+
+- Update to circle-stdlib v15.12/Circle Step 44.4.1.
+- Update to FluidSynth v2.2.6.
+- Update to inih r54.
+
+## [0.11.1] - 2022-03-10
+
+### Added
+
+- Implemented RNFR/RNTO (file/directory renaming) in the FTP server.
+- Support for SSD1312 OLED displays via new horizontal mirroring configuration file option - thanks @nikitalita!
+
+### Changed
+
+- Update to libmt32emu v2.6.1.
+  * This update adds support for MT-32 ROM versions 2.06, 2.07 and CM-32LN ROM version 1.00 (CM-32LN is untested).
+- Update to FluidSynth v2.2.5.
+- MT-32 LCD emulation replaced with new libmt32emu v2.6+ display emulation.
+- FluidSynth's master volume gain is now an effects profile setting and can be overridden on a per-SoundFont basis (issue #248). Thanks to @c0d3h4x0r for the suggestion!
+
+### Fixed
+
+- A bug in the config file reader (unterminated string) could cause the last entry in the file to be read as a corrupted value if the file ended without a newline.
+- Some FTP commands could work without being logged in.
+- Some DAC accessories which make use of a hardware "mute" pin (e.g. Adafruit I²S Audio Bonnet) could be held in a muted state due to a conflict with the Blokas Pisound driver's probing routine (issue #233). The driver now resets these GPIO pins to the initial power-on state, which should fix this issue. Thanks to @htamas2 for the report!
+- Sudden loud noise caused by switching SoundFonts whilst receiving MIDI data (issue #247). Any note-on messages received whilst busy switching SoundFonts are now discarded. Thanks to @c0d3h4x0r for the report!
+
+## [0.11.0] - 2021-12-12
+
+### Added
+
+- Support for the new Raspberry Pi Zero 2 W.
+  * You **must** update `config.txt`, otherwise the Zero 2 W will boot the 32-bit Raspberry Pi 2 kernel, which will result in lower performance.
+  * This model requires new boot firmware and Wi-Fi firmware - make sure you update `bootcode.bin`, `fixup*.dat`, `start*.elf`, and the contents of the `firmware` directory.
+  * PWM audio is available on GPIO pins 12/13 for this model.
+- Experimental embedded FTP server for performing updates/config changes without replacing the SD card (new configuration file options).
+  * This FTP server is a very basic implementation which DOES NOT feature any kind of transport layer security/encryption. Therefore, you should NOT enable this feature on a public network or expose the Raspberry Pi to the Internet.
+  * The FTP server is disabled by default.
+- Support for Yamaha MU-series SysEx text messages, and bitmap messages when using a graphical display.
+
+### Changed
+
+- Update to circle-stdlib v15.10/Circle Step 44.3.
+- Update ARM toolchains to 10.3-2021.07.
+- Update to libmt32emu v2.5.3.
+- Update to FluidSynth v2.2.4.
+- The default FluidSynth polyphony value has been reduced from 256 to 200 to account for the lower out-of-the-box performance of the Pi Zero 2 W.
+  * For the vast majority of use cases, this will have no noticable difference.
+  * If you prefer, a +200MHz overclock can be applied to the Zero 2 W match the performance of the Raspberry Pi 3B (1.2GHz), in which case you can use the original higher polyphony value of 256. Commented-out example of how to do this is now provided in `config.txt`.
+  * Heatsink/cooling recommended to ensure stability if you decide to do the above.
+
+### Fixed
+
+- "WiFi disconnected!" would be shown on the LCD when Ethernet was disconnected.
+- The SoundFont loading "spinner" was broken since v0.10.0.
+
+## [0.10.3] - 2021-09-03
+
+### Fixed
+
+- Broken UART error handling since v0.10.2 which would result in erratic, false MIDI activity under some circumstances. Many thanks to WiteWulf and Alex Mitchell for the report!
+
+## [0.10.2] - 2021-08-11
+
+### Added
+
+- Ability to swap the MT-32 stereo channels in order to work around bugs in games that are not aware of the MT-32's reversed panpot value interpretation (new configuration file option and custom SysEx message).
+
+### Changed
+
+- MIDI and UART related warnings are now hidden unless verbose mode is enabled in the configuration file. This is a preventative measure against false bug reports stemming from buggy games/user equipment, and to improve aesthetics (real synthesizers tend to silently ignore harmless stray MIDI bytes).
+
+### Fixed
+
+- Guru Meditation that could occur if non-default mt32emu options were specified but the synth was unavailable due to missing ROMs.
+
+## [0.10.1] - 2021-08-01
+
+### Changed
+
+- Update to libmt32emu v2.5.2.
+- Update to FluidSynth v2.2.2.
+- The default value for `usb_serial_baud_rate` is now 38400 to reflect the most common use case (connecting to a vintage PC with SoftMPU).
+
+### Fixed
+
+- The MIDI level meters could get stuck under certain circumstances (issue #142).
+- Sending a MIDI reset SysEx would cause the MIDI level meters to instantly zero rather than fall off gradually.
+- Sending a Yamaha XG reset SysEx will now reset the MIDI level meters.
+- SC-55 text SysEx messages of length <32 were not being displayed.
+
 ## [0.10.0] - 2021-06-26
 
 ### Added
@@ -76,7 +215,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Update to circle-stdlib v15.6/Circle Step 43.3.
-- Update to inih r52.
+- Update to inih r53.
 - Update to FluidSynth v2.1.8.
 - Update ARM toolchains to 10.2-2020.11.
 - Config file options are now case-insensitive.
@@ -364,7 +503,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial version.
 
-[unreleased]: https://github.com/dwhinham/mt32-pi/compare/v0.10.0...HEAD
+[unreleased]: https://github.com/dwhinham/mt32-pi/compare/v0.12.1..HEAD
+[0.12.1]: https://github.com/dwhinham/mt32-pi/compare/v0.12.0..v0.12.1
+[0.12.0]: https://github.com/dwhinham/mt32-pi/compare/v0.11.3..v0.12.0
+[0.11.3]: https://github.com/dwhinham/mt32-pi/compare/v0.11.2..v0.11.3
+[0.11.2]: https://github.com/dwhinham/mt32-pi/compare/v0.11.1..v0.11.2
+[0.11.1]: https://github.com/dwhinham/mt32-pi/compare/v0.11.0..v0.11.1
+[0.11.0]: https://github.com/dwhinham/mt32-pi/compare/v0.10.3..v0.11.0
+[0.10.3]: https://github.com/dwhinham/mt32-pi/compare/v0.10.2..v0.10.3
+[0.10.2]: https://github.com/dwhinham/mt32-pi/compare/v0.10.1..v0.10.2
+[0.10.1]: https://github.com/dwhinham/mt32-pi/compare/v0.10.0..v0.10.1
 [0.10.0]: https://github.com/dwhinham/mt32-pi/compare/v0.9.1..v0.10.0
 [0.9.1]: https://github.com/dwhinham/mt32-pi/compare/v0.9.0..v0.9.1
 [0.9.0]: https://github.com/dwhinham/mt32-pi/compare/v0.8.5..v0.9.0

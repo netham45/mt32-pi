@@ -2,7 +2,7 @@
 // gmsysex.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -31,22 +31,12 @@ enum class TGMSubID : u8
 	GeneralMIDIOff = 0x02,
 };
 
-struct TGMModeOnSysExMessage
+struct TGMSysExHeader
 {
-	u8 nStartOfSysEx;
 	TManufacturerID ManufacturerID;
 	TDeviceID DeviceID;
 	TUniversalSubID SubID1;
 	TGMSubID SubID2;
-	u8 nEndOfExclusive;
-
-	bool IsValid() const
-	{
-		return	ManufacturerID == TManufacturerID::UniversalNonRealTime &&
-				DeviceID == TDeviceID::AllCall &&
-				SubID1 == TUniversalSubID::GeneralMIDI &&
-				SubID2 == TGMSubID::GeneralMIDIOn;
-	}
 }
 PACKED;
 

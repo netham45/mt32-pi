@@ -2,7 +2,7 @@
 // soundfontmanager.cpp
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -24,6 +24,9 @@
 #include <circle/util.h>
 #include <fatfs/ff.h>
 
+#include <ini.h>
+
+#include "config.h"
 #include "soundfontmanager.h"
 #include "utility.h"
 
@@ -71,7 +74,7 @@ bool CSoundFontManager::ScanSoundFonts()
 	// Loop over each disk
 	for (auto pDisk : Disks)
 	{
-		DirectoryPath.Format("%s:/%s", pDisk, SoundFontDirectory);
+		DirectoryPath.Format("%s:%s", pDisk, SoundFontDirectory);
 		Result = f_findfirst(&Dir, &FileInfo, DirectoryPath, "*");
 
 		// Loop over each file in the directory
@@ -81,9 +84,8 @@ bool CSoundFontManager::ScanSoundFonts()
 			if (!(FileInfo.fattrib & (AM_DIR | AM_HID | AM_SYS)))
 			{
 				// Assemble path
-				CString SoundFontPath(static_cast<const char*>(DirectoryPath));
-				SoundFontPath.Append("/");
-				SoundFontPath.Append(FileInfo.fname);
+				CString SoundFontPath;
+				SoundFontPath.Format("%s/%s", static_cast<const char*>(DirectoryPath), FileInfo.fname);
 
 				CheckSoundFont(SoundFontPath, FileInfo.fname);
 			}
@@ -92,7 +94,6 @@ bool CSoundFontManager::ScanSoundFonts()
 		}
 	}
 
-	// Sort into alphabetical order
 	if (m_nSoundFonts > 0)
 	{
 		// Sort into lexicographical order
@@ -126,6 +127,53 @@ const char* CSoundFontManager::GetSoundFontName(size_t nIndex) const
 		return static_cast<const char*>(m_SoundFontList[nIndex].Path);
 
 	return static_cast<const char*>(m_SoundFontList[nIndex].Name);
+}
+
+TFXProfile CSoundFontManager::GetSoundFontFXProfile(size_t nIndex) const
+{
+	TFXProfile FXProfile;
+
+	const char* const pSoundFontPath = GetSoundFontPath(nIndex);
+	if (!pSoundFontPath)
+		return FXProfile;
+
+	// +5 bytes in case we need to add an extension (4 chars + null terminator)
+	const size_t nPathLength = strlen(pSoundFontPath) + 5;
+	char PathBuffer[nPathLength];
+	strcpy(PathBuffer, pSoundFontPath);
+
+	// Replace file extension if present
+	char* const pExtension = strrchr(PathBuffer, '.');
+	if (pExtension)
+		strcpy(pExtension, ".cfg");
+	else
+		strcat(PathBuffer, ".cfg");
+
+	FIL File;
+	if (f_open(&File, PathBuffer, FA_READ) != FR_OK)
+		return FXProfile;
+
+	// +1 byte for null terminator
+	const UINT nSize = f_size(&File);
+	char Buffer[nSize + 1];
+	UINT nRead;
+
+	if (f_read(&File, Buffer, nSize, &nRead) != FR_OK)
+	{
+		CLogger::Get()->Write(SoundFontManagerName, LogError, "Error reading effects profile");
+		f_close(&File);
+		return FXProfile;
+	}
+
+	// Ensure null-terminated
+	Buffer[nRead] = '\0';
+
+	const int nResult = ini_parse_string(Buffer, INIHandler, &FXProfile);
+	if (nResult > 0)
+		CLogger::Get()->Write(SoundFontManagerName, LogWarning, "Effects profile parse error on line %d", nResult);
+
+	f_close(&File);
+	return FXProfile;
 }
 
 const char* CSoundFontManager::GetFirstValidSoundFontPath() const
@@ -198,17 +246,51 @@ void CSoundFontManager::CheckSoundFont(const char* pFullPath, const char* pFileN
 	// Clean up
 	f_close(&File);
 
-	TSoundFontListEntry& entry = m_SoundFontList[m_nSoundFonts++];
-	entry.Path  = pFullPath;
+	TSoundFontListEntry& Entry = m_SoundFontList[m_nSoundFonts++];
+	Entry.Path = pFullPath;
 
 	// If we got a name, use it, otherwise fall back on filename
 	if (Name[0] != '\0')
-		entry.Name = Name;
+		Entry.Name = Name;
 	else
-		entry.Name = pFileName;
+		Entry.Name = pFileName;
 }
 
-inline bool CSoundFontManager::SoundFontListComparator(const TSoundFontListEntry& lhs, const TSoundFontListEntry& rhs)
+inline bool CSoundFontManager::SoundFontListComparator(const TSoundFontListEntry& EntryA, const TSoundFontListEntry& EntryB)
 {
-	return strcasecmp(lhs.Path, rhs.Path) < 0;
+	return strcasecmp(EntryA.Path, EntryB.Path) < 0;
+}
+
+int CSoundFontManager::INIHandler(void* pUser, const char* pSection, const char* pName, const char* pValue)
+{
+	TFXProfile* const pFXProfile = static_cast<TFXProfile*>(pUser);
+
+	#define MATCH(NAME, TYPE, STRUCT_MEMBER)                            \
+		if (!strcmp(NAME, pName))                                   \
+		{                                                           \
+			auto Temp = decltype(*pFXProfile->STRUCT_MEMBER){}; \
+			if (CConfig::ParseOption(pValue, &Temp))            \
+			{                                                   \
+				pFXProfile->STRUCT_MEMBER = Temp;           \
+				return 1;                                   \
+			}                                                   \
+			return 0;                                           \
+		}
+
+	MATCH("gain", float, nGain);
+
+	MATCH("reverb", bool, bReverbActive);
+	MATCH("reverb_damping", float, nReverbDamping);
+	MATCH("reverb_level", float, nReverbLevel);
+	MATCH("reverb_room_size", float, nReverbRoomSize);
+	MATCH("reverb_width", float, nReverbWidth);
+
+	MATCH("chorus", bool, bChorusActive);
+	MATCH("chorus_depth", float, nChorusDepth);
+	MATCH("chorus_level", float, nChorusLevel);
+	MATCH("chorus_voices", int, nChorusVoices);
+	MATCH("chorus_speed", float, nChorusSpeed);
+
+	#undef MATCH
+	return 0;
 }

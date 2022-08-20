@@ -2,7 +2,7 @@
 // utility.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -109,38 +109,38 @@ namespace Utility
 		using TComparator = bool (*)(const T&, const T&);
 
 		template<class T>
-		inline bool LessThan(const T& lhs, const T& rhs)
+		inline bool LessThan(const T& ObjectA, const T& ObjectB)
 		{
-			return lhs < rhs;
+			return ObjectA < ObjectB;
 		}
 
 		template<class T>
-		inline bool GreaterThan(const T& ItemA, const T& ItemB)
+		inline bool GreaterThan(const T& ObjectA, const T& ObjectB)
 		{
-			return ItemA > ItemB;
+			return ObjectA > ObjectB;
 		}
 
-		inline bool CaseInsensitiveAscending(const CString& lhs, const CString& rhs)
+		inline bool CaseInsensitiveAscending(const CString& StringA, const CString& StringB)
 		{
-			return strcasecmp(lhs, rhs) < 0;
+			return strcasecmp(StringA, StringB) < 0;
 		}
 	}
 
 	// Swaps two objects in-place
 	template<class T>
-	inline void Swap(T& lhs, T& rhs)
+	inline void Swap(T& ObjectA, T& ObjectB)
 	{
-		u8 temp[sizeof(T)];
-		memcpy(temp, &lhs, sizeof(T));
-		memcpy(&lhs, &rhs, sizeof(T));
-		memcpy(&rhs, temp, sizeof(T));
+		u8 Buffer[sizeof(T)];
+		memcpy(Buffer, &ObjectA, sizeof(T));
+		memcpy(&ObjectA, &ObjectB, sizeof(T));
+		memcpy(&ObjectB, Buffer, sizeof(T));
 	}
 
 	namespace
 	{
 		// Quicksort partition function (private)
-		template<class T, size_t N>
-		size_t Partition(T(&Items)[N], Comparator::TComparator<T> Comparator, size_t nLow, size_t nHigh)
+		template<class T>
+		size_t Partition(T* Items, Comparator::TComparator<T> Comparator, size_t nLow, size_t nHigh)
 		{
 			const size_t nPivotIndex = (nHigh + nLow) / 2;
 			T* Pivot = &Items[nPivotIndex];
@@ -171,8 +171,8 @@ namespace Utility
 	}
 
 	// Sorts an array in-place using the Tony Hoare Quicksort algorithm
-	template <class T, size_t N>
-	void QSort(T(&Items)[N], Comparator::TComparator<T> Comparator = Comparator::LessThan<T>, size_t nLow = 0, size_t nHigh = N - 1)
+	template <class T>
+	void QSort(T* Items, Comparator::TComparator<T> Comparator, size_t nLow, size_t nHigh)
 	{
 		if (nLow < nHigh)
 		{

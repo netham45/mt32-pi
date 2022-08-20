@@ -2,7 +2,7 @@
 // rolandsysex.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -24,21 +24,20 @@
 #define _rolandsysex_h
 
 #include "synth/sysex.h"
-#include "utility.h"
 
-enum class TRolandModelID : u8
+enum TRolandModelID : u8
 {
 	GS   = 0x42,
 	SC55 = 0x45
 };
 
-enum class TRolandCommandID : u8
+enum TRolandCommandID : u8
 {
 	RQ1 = 0x11,
 	DT1 = 0x12,
 };
 
-enum class TRolandAddress : u32
+enum TRolandAddress : u32
 {
 	SystemModeSet = 0x00007F,
 
@@ -49,51 +48,18 @@ enum class TRolandAddress : u32
 	SC55DisplayDots = 0x100100,
 };
 
-constexpr u32 DefaultAddressMask   = 0xFFFFFF;
-constexpr u32 PatchPartAddressMask = 0xFFF0FF;
-
-template <TRolandModelID TModelID, TRolandAddress TAddress, u32 nAddressMask, size_t nDataSize>
-struct TRolandSysExMessage
+enum TRolandAddressMask : u32
 {
-	u8 nStartOfSysEx;
+	PatchPart = 0xFFF0FF,
+};
+
+struct TRolandSysExHeader
+{
 	TManufacturerID ManufacturerID;
 	TDeviceID DeviceID;
 	TRolandModelID ModelID;
 	TRolandCommandID CommandID;
 	u8 Address[3];
-	u8 Data[nDataSize];
-	u8 nChecksum;
-	u8 nEndOfExclusive;
-
-	bool IsValid() const
-	{
-		return	ManufacturerID == TManufacturerID::Roland &&
-				ModelID == TModelID &&
-				CommandID == TRolandCommandID::DT1 &&
-				(GetAddress() & nAddressMask) == static_cast<u32>(TAddress) &&
-				nChecksum == Utility::RolandChecksum(Address, sizeof(Address) + nDataSize);
-	}
-
-	u32 GetAddress() const
-	{
-		return Address[0] << 16 | Address[1] << 8 | Address[2];
-	}
-
-	const u8* GetData() const
-	{
-		return Data;
-	}
-}
-PACKED;
-
-using TRolandGSResetSysExMessage          = TRolandSysExMessage<TRolandModelID::GS, TRolandAddress::GSReset, DefaultAddressMask, 1>;
-using TRolandSystemModeSetSysExMessage    = TRolandSysExMessage<TRolandModelID::GS, TRolandAddress::SystemModeSet, DefaultAddressMask, 1>;
-
-using TRolandUseForRhythmPartSysExMessage = TRolandSysExMessage<TRolandModelID::GS, TRolandAddress::UseForRhythmPart, PatchPartAddressMask, 1>;
-
-using TSC55DisplayTextSysExMessage = TRolandSysExMessage<TRolandModelID::SC55, TRolandAddress::SC55DisplayText, DefaultAddressMask, 32>;
-using TSC55DisplayDotsSysExMessage = TRolandSysExMessage<TRolandModelID::SC55, TRolandAddress::SC55DisplayDots, DefaultAddressMask, 64>;
-
-constexpr size_t RolandSingleDataByteMessageSize = sizeof(TRolandGSResetSysExMessage);
+};
 
 #endif

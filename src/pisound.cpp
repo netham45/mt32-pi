@@ -2,7 +2,7 @@
 // pisound.cpp
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -69,6 +69,17 @@ CPisound::CPisound(CSPIMaster* pSPIMaster, CGPIOManager* pGPIOManager, unsigned 
 	  // Assume hardware version 1.0
 	  m_HardwareVersion{"1.0"}
 {
+}
+
+CPisound::~CPisound()
+{
+	// Reset GPIO pins to default boot-up state
+	m_SPIReset.SetMode(TGPIOMode::GPIOModeInputPullDown);
+	m_DataAvailable.SetMode(TGPIOMode::GPIOModeInputPullDown);
+	m_ADCReset.SetMode(TGPIOMode::GPIOModeInputPullDown);
+	m_OversamplingRatio0.SetMode(TGPIOMode::GPIOModeInputPullDown);
+	m_OversamplingRatio1.SetMode(TGPIOMode::GPIOModeInputPullDown);
+	m_OversamplingRatio2.SetMode(TGPIOMode::GPIOModeInputPullDown);
 }
 
 bool CPisound::Initialize()
