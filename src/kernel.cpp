@@ -2,7 +2,7 @@
 // kernel.cpp
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -59,13 +59,13 @@ bool CKernel::Initialize(void)
 #endif
 
 	const char* pLogDeviceName = mOptions.GetLogDevice();
-	const bool bSerialMIDIEnabled = strcmp(pLogDeviceName, "ttyS1") != 0;
+	const bool bSerialMIDIAvailable = strcmp(pLogDeviceName, "ttyS1") != 0;
 
 	// Init serial port early if used for logging
-	if (!bSerialMIDIEnabled && !m_Serial.Initialize(115200))
+	if (!bSerialMIDIAvailable && !m_Serial.Initialize(115200))
 		return false;
 
-	CDevice* pLogTarget =  mDeviceNameService.GetDevice(pLogDeviceName, false);
+	CDevice* pLogTarget = mDeviceNameService.GetDevice(pLogDeviceName, false);
 
 	if (!pLogTarget)
 		pLogTarget = &mNullDevice;
@@ -93,7 +93,7 @@ bool CKernel::Initialize(void)
 		m_Logger.Write(GetKernelName(), LogWarning, "Unable to find or parse config file; using defaults");
 
 	// Init serial port for MIDI with preferred baud rate if not used for logging
-	if (bSerialMIDIEnabled && !m_Serial.Initialize(m_Config.MIDIGPIOBaudRate))
+	if (bSerialMIDIAvailable && !m_Serial.Initialize(m_Config.MIDIGPIOBaudRate))
 		return false;
 
 	// Init I2C; don't bother with Initialize() as it only sets the clock to 100/400KHz
@@ -111,7 +111,7 @@ bool CKernel::Initialize(void)
 	if (!m_Allocator.Initialize())
 		return false;
 
-	if (!m_MT32Pi.Initialize(bSerialMIDIEnabled))
+	if (!m_MT32Pi.Initialize(bSerialMIDIAvailable))
 		return false;
 
 	return true;

@@ -11,3 +11,14 @@ insert_final_newline = true
 
 [*.md]
 trim_trailing_whitespace = false
+
+[*.py]
+indent_style = space
+tab_width = 4
+
+[*.yml]
+indent_style = space
+tab_width = 2
+
+[external/**]
+trim_trailing_whitespace = false

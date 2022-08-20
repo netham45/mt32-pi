@@ -2,7 +2,7 @@
 // midimonitor.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -49,8 +49,16 @@ private:
 	static constexpr float PeakHoldTimeMillis = 2000.0f;
 	static constexpr float PeakFalloffTimeMillis = 1000.0f;
 
+	enum class TEnvelopePhase
+	{
+		Idle,
+		NoteOn,
+		NoteOff,
+	};
+
 	struct TNoteState
 	{
+		TEnvelopePhase EnvelopePhase;
 		unsigned int nNoteOnTime;
 		unsigned int nNoteOffTime;
 		u8 nVelocity;
@@ -67,8 +75,8 @@ private:
 	};
 
 	void ProcessCC(u8 nChannel, u8 nCC, u8 nValue, unsigned int nTicks);
-	inline float ComputeEnvelope(unsigned int nTicks, const TNoteState& NoteState) const;
-	inline float ComputePercussionEnvelope(unsigned int nTicks, const TNoteState& NoteState) const;
+	inline float ComputeEnvelope(TNoteState& NoteState) const;
+	inline float ComputePercussionEnvelope(TNoteState& NoteState) const;
 
 	TChannelState m_State[ChannelCount];
 	float m_PeakLevels[ChannelCount];

@@ -2,7 +2,7 @@
 // rotaryencoder.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -32,8 +32,8 @@ class CRotaryEncoder
 {
 public:
 	#define ENUM_ENCODERTYPE(ENUM) \
-		ENUM(Full, full)           \
-		ENUM(Half, half)           \
+		ENUM(Full, full)       \
+		ENUM(Half, half)       \
 		ENUM(Quarter, quarter)
 
 	CONFIG_ENUM(TEncoderType, ENUM_ENCODERTYPE);

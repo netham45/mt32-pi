@@ -2,7 +2,7 @@
 // soundfontsynth.cpp
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -29,6 +29,7 @@
 #include "synth/gmsysex.h"
 #include "synth/rolandsysex.h"
 #include "synth/soundfontsynth.h"
+#include "synth/yamahasysex.h"
 #include "utility.h"
 #include "zoneallocator.h"
 
@@ -128,16 +129,15 @@ extern "C"
 	}
 }
 
-CSoundFontSynth::CSoundFontSynth(unsigned nSampleRate, float nGain, u32 nPolyphony)
+CSoundFontSynth::CSoundFontSynth(unsigned nSampleRate)
 	: CSynthBase(nSampleRate),
 
 	  m_pSettings(nullptr),
 	  m_pSynth(nullptr),
 
-	  m_nInitialGain(nGain),
-	  m_nCurrentGain(nGain),
+	  m_nVolume(100),
+	  m_nInitialGain(0.2f),
 
-	  m_nPolyphony(nPolyphony),
 	  m_nPercussionMask(1 << 9),
 	  m_nCurrentSoundFontIndex(0)
 {
@@ -179,6 +179,8 @@ bool CSoundFontSynth::Initialize()
 	if (!pSoundFontPath)
 		return false;
 
+	TFXProfile FXProfile = m_SoundFontManager.GetSoundFontFXProfile(m_nCurrentSoundFontIndex);
+
 	// Install logging handlers
 	fluid_set_log_function(FLUID_PANIC, FluidSynthLogCallback, this);
 	fluid_set_log_function(FLUID_ERR, FluidSynthLogCallback, this);
@@ -198,7 +200,7 @@ bool CSoundFontSynth::Initialize()
 	fluid_settings_setnum(m_pSettings, "synth.sample-rate", static_cast<double>(m_nSampleRate));
 	fluid_settings_setint(m_pSettings, "synth.threadsafe-api", false);
 
-	return Reinitialize(pSoundFontPath, &pConfig->FXProfiles[m_nCurrentSoundFontIndex]);
+	return Reinitialize(pSoundFontPath, &FXProfile);
 }
 
 void CSoundFontSynth::HandleMIDIShortMessage(u32 nMessage)
@@ -266,59 +268,9 @@ void CSoundFontSynth::HandleMIDIShortMessage(u32 nMessage)
 
 void CSoundFontSynth::HandleMIDISysExMessage(const u8* pData, size_t nSize)
 {
-	// GM Mode On
-	if (nSize == sizeof(TGMModeOnSysExMessage))
-	{
-		const auto& GMModeOnMessage = reinterpret_cast<const TGMModeOnSysExMessage&>(*pData);
-		if (GMModeOnMessage.IsValid())
-			ResetMIDIMonitor();
-	}
-
-	// Single data byte Roland message
-	else if (nSize == RolandSingleDataByteMessageSize)
-	{
-		const auto& GSResetMessage = reinterpret_cast<const TRolandGSResetSysExMessage&>(*pData);
-		const auto& SystemModeSetMessage = reinterpret_cast<const TRolandSystemModeSetSysExMessage&>(*pData);
-		const auto& UseForRhythmPartMessage = reinterpret_cast<const TRolandUseForRhythmPartSysExMessage&>(*pData);
-
-		// GS Reset/SC-88 Mode Set		
-		if (GSResetMessage.IsValid() || SystemModeSetMessage.IsValid())
-			ResetMIDIMonitor();
-
-		// Use For Rhythm Part
-		else if (UseForRhythmPartMessage.IsValid())
-		{
-			// TODO: If FluidSynth had an API to query the channel mode we wouldn't need to keep track of it
-			const u8 nChannel = (UseForRhythmPartMessage.GetAddress() >> 8) & 0x0F;
-			const u8 nMode    = *UseForRhythmPartMessage.GetData() ? 1 : 0;
-			m_nPercussionMask ^= (-nMode ^ m_nPercussionMask) & (1 << nChannel);
-		}
-	}
-
-	// TODO: XG Mode On reset for MIDI monitor
-
-	// SC-55 display message?
-	else if (nSize == sizeof(TSC55DisplayTextSysExMessage))
-	{
-		const auto& DisplayTextMessage = reinterpret_cast<const TSC55DisplayTextSysExMessage&>(*pData);
-		if (DisplayTextMessage.IsValid())
-		{
-			const char* pMessage = reinterpret_cast<const char*>(DisplayTextMessage.GetData());
-			if (m_pUI)
-				m_pUI->ShowSC55Text(pMessage);
-			return;
-		}
-	}
-	else if (nSize == sizeof(TSC55DisplayDotsSysExMessage))
-	{
-		const auto& DisplayDotsMessage = reinterpret_cast<const TSC55DisplayDotsSysExMessage&>(*pData);
-		if (DisplayDotsMessage.IsValid())
-		{
-			if (m_pUI)
-				m_pUI->ShowSC55Dots(DisplayDotsMessage.GetData());
-			return;
-		}
-	}
+	// Return early if it wasn't a GM Mode On/Off message and was consumed as a text/display dots message
+	if (!ParseGMSysEx(pData, nSize) && (ParseRolandSysEx(pData, nSize) || ParseYamahaSysEx(pData, nSize)))
+		return;
 
 	// No special handling; forward to FluidSynth SysEx parser, excluding leading 0xF0 and trailing 0xF7
 	m_Lock.Acquire();
@@ -347,9 +299,9 @@ void CSoundFontSynth::AllSoundOff()
 
 void CSoundFontSynth::SetMasterVolume(u8 nVolume)
 {
-	m_nCurrentGain = nVolume / 100.0f * m_nInitialGain;
+	m_nVolume = nVolume;
 	m_Lock.Acquire();
-	fluid_synth_set_gain(m_pSynth, m_nCurrentGain);
+	fluid_synth_set_gain(m_pSynth, m_nVolume / 100.0f * m_nInitialGain);
 	m_Lock.Release();
 }
 
@@ -405,8 +357,10 @@ bool CSoundFontSynth::SwitchSoundFont(size_t nIndex)
 	if (m_pUI)
 		m_pUI->ShowSystemMessage("Loading SoundFont", true);
 
+	TFXProfile FXProfile = m_SoundFontManager.GetSoundFontFXProfile(nIndex);
+
 	// We can't use fluid_synth_sfunload() as we don't support the lazy SoundFont unload timer, so trash the entire synth and create a new one
-	if (!Reinitialize(pSoundFontPath, &CConfig::Get()->FXProfiles[nIndex]))
+	if (!Reinitialize(pSoundFontPath, &FXProfile))
 	{
 		if (m_pUI)
 			m_pUI->ShowSystemMessage("SF switch failed!");
@@ -442,8 +396,10 @@ bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath, const TFXProfile*
 		return false;
 	}
 
-	fluid_synth_set_gain(m_pSynth, m_nCurrentGain);
-	fluid_synth_set_polyphony(m_pSynth, m_nPolyphony);
+	fluid_synth_set_polyphony(m_pSynth, pConfig->FluidSynthPolyphony);
+
+	m_nInitialGain = pFXProfile->nGain.ValueOr(pConfig->FluidSynthDefaultGain);
+	fluid_synth_set_gain(m_pSynth, m_nVolume / 100.0f * m_nInitialGain);
 
 	// Use values from effects profile if set, otherwise use defaults
 	fluid_synth_reverb_on(m_pSynth, -1, pFXProfile->bReverbActive.ValueOr(pConfig->FluidSynthDefaultReverbActive));
@@ -452,7 +408,7 @@ bool CSoundFontSynth::Reinitialize(const char* pSoundFontPath, const TFXProfile*
 	fluid_synth_set_reverb_group_roomsize(m_pSynth, -1, pFXProfile->nReverbRoomSize.ValueOr(pConfig->FluidSynthDefaultReverbRoomSize));
 	fluid_synth_set_reverb_group_width(m_pSynth, -1, pFXProfile->nReverbWidth.ValueOr(pConfig->FluidSynthDefaultReverbWidth));
 
-	fluid_synth_chorus_on(m_pSynth, -1,	pFXProfile->bChorusActive.ValueOr(pConfig->FluidSynthDefaultChorusActive));
+	fluid_synth_chorus_on(m_pSynth, -1, pFXProfile->bChorusActive.ValueOr(pConfig->FluidSynthDefaultChorusActive));
 	fluid_synth_set_chorus_group_depth(m_pSynth, -1, pFXProfile->nChorusDepth.ValueOr(pConfig->FluidSynthDefaultChorusDepth));
 	fluid_synth_set_chorus_group_level(m_pSynth, -1, pFXProfile->nChorusLevel.ValueOr(pConfig->FluidSynthDefaultChorusLevel));
 	fluid_synth_set_chorus_group_nr(m_pSynth, -1, pFXProfile->nChorusVoices.ValueOr(pConfig->FluidSynthDefaultChorusVoices));
@@ -491,8 +447,10 @@ void CSoundFontSynth::ResetMIDIMonitor()
 void CSoundFontSynth::DumpFXSettings() const
 {
 	CLogger* const pLogger = CLogger::Get();
-	double nReverbDamping, nReverbLevel, nReverbRoomSize, nReverbWidth, nChorusDepth, nChorusLevel, nChorusSpeed;
+	double nGain, nReverbDamping, nReverbLevel, nReverbRoomSize, nReverbWidth, nChorusDepth, nChorusLevel, nChorusSpeed;
 	int nChorusVoices;
+
+	nGain = fluid_synth_get_gain(m_pSynth);
 
 	assert(fluid_synth_get_reverb_group_damp(m_pSynth, -1, &nReverbDamping) == FLUID_OK);
 	assert(fluid_synth_get_reverb_group_level(m_pSynth, -1, &nReverbLevel) == FLUID_OK);
@@ -503,6 +461,8 @@ void CSoundFontSynth::DumpFXSettings() const
 	assert(fluid_synth_get_chorus_group_level(m_pSynth, -1, &nChorusLevel) == FLUID_OK);
 	assert(fluid_synth_get_chorus_group_nr(m_pSynth, -1, &nChorusVoices) == FLUID_OK);
 	assert(fluid_synth_get_chorus_group_speed(m_pSynth, -1, &nChorusSpeed) == FLUID_OK);
+
+	pLogger->Write(SoundFontSynthName, LogNotice, "Gain: %.2f", nGain);
 
 	pLogger->Write(SoundFontSynthName, LogNotice,
 		"Reverb: %.2f, %.2f, %.2f, %.2f",
@@ -521,3 +481,136 @@ void CSoundFontSynth::DumpFXSettings() const
 	);
 }
 #endif
+
+bool CSoundFontSynth::ParseGMSysEx(const u8* pData, size_t nSize)
+{
+	// Must be at least size of header plus Start/End of Exclusive bytes
+	if (nSize < sizeof(TGMSysExHeader) + 2)
+		return false;
+
+	const auto& Header = reinterpret_cast<const TGMSysExHeader&>(pData[1]);
+
+	if (Header.ManufacturerID == TManufacturerID::UniversalNonRealTime &&
+	    Header.DeviceID == TDeviceID::AllCall &&
+	    Header.SubID1 == TUniversalSubID::GeneralMIDI)
+	{
+		// GM Mode On/Off
+		if (Header.SubID2 == TGMSubID::GeneralMIDIOn || Header.SubID2 == TGMSubID::GeneralMIDIOff)
+		{
+			ResetMIDIMonitor();
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool CSoundFontSynth::ParseRolandSysEx(const u8* pData, size_t nSize)
+{
+	// Must be at least size of header plus a data byte, a checksum byte, and Start/End of Exclusive bytes
+	if (nSize < sizeof(TRolandSysExHeader) + 4)
+		return false;
+
+	const auto& Header = reinterpret_cast<const TRolandSysExHeader&>(pData[1]);
+	const u32 nAddressHiMed = Header.Address[0] << 16 | Header.Address[1] << 8;
+	const u8 nAddressLo = Header.Address[2];
+	const u8* pRolandData = pData + sizeof(TRolandSysExHeader) + 1;
+	const size_t nRolandDataSize = nSize - sizeof(TRolandSysExHeader) - 3;
+	const u8 nChecksum = pData[nSize - 2];
+
+	if (Header.ManufacturerID != TManufacturerID::Roland)
+		return false;
+
+	if (Utility::RolandChecksum(Header.Address, sizeof(Header.Address) + nRolandDataSize) != nChecksum)
+		return false;
+
+	// Single byte GS messages
+	if (Header.ModelID == TRolandModelID::GS && nRolandDataSize == 1)
+	{
+		if ((nAddressHiMed == TRolandAddress::GSReset || nAddressHiMed == TRolandAddress::SystemModeSet) && *pRolandData == 0)
+		{
+			// Reset MIDI monitor on GS reset
+			ResetMIDIMonitor();
+
+			// Don't consume; forward to FluidSynth
+			return false;
+		}
+		else if ((nAddressHiMed & TRolandAddressMask::PatchPart) == TRolandAddress::UseForRhythmPart)
+		{
+			// TODO: If FluidSynth had an API to query the channel mode we wouldn't need to keep track of it
+			const u8 nChannel = Header.Address[1] & 0x0F;
+			const u8 nMode    = *pRolandData ? 1 : 0;
+			m_nPercussionMask ^= (-nMode ^ m_nPercussionMask) & (1 << nChannel);
+
+			// Don't consume; forward to FluidSynth
+			return false;
+		}
+	}
+	else if (Header.ModelID == TRolandModelID::SC55)
+	{
+		if (nAddressHiMed == TRolandAddress::SC55DisplayText)
+		{
+			if (m_pUI)
+				m_pUI->ShowSysExText(CUserInterface::TSysExDisplayMessage::Roland, pRolandData, nRolandDataSize, nAddressLo);
+
+			// Consume
+			return true;
+		}
+		else if (nAddressHiMed == TRolandAddress::SC55DisplayDots)
+		{
+			if (m_pUI)
+				m_pUI->ShowSysExBitmap(CUserInterface::TSysExDisplayMessage::Roland, pRolandData, nRolandDataSize);
+
+			// Consume
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool CSoundFontSynth::ParseYamahaSysEx(const u8* pData, size_t nSize)
+{
+	// Must be at least size of header plus a data byte and Start/End of Exclusive bytes
+	if (nSize < sizeof(TYamahaSysExHeader) + 3)
+		return false;
+
+	const auto& Header = reinterpret_cast<const TYamahaSysExHeader&>(pData[1]);
+	const u32 nAddressHiMed = Header.Address[0] << 16 | Header.Address[1] << 8;
+	const u8 nAddressLo = Header.Address[2];
+	const u8* pYamahaData = pData + sizeof(TYamahaSysExHeader) + 1;
+	const size_t nYamahaDataSize = nSize - sizeof(TYamahaSysExHeader) - 2;
+
+	if (Header.ManufacturerID != TManufacturerID::Yamaha)
+		return false;
+
+	if (Header.ModelID == TYamahaModelID::XG)
+	{
+		if (nAddressHiMed == TYamahaAddress::XGSystemOn && *pYamahaData == 0)
+		{
+			// Reset MIDI monitor on XG reset
+			ResetMIDIMonitor();
+
+			// Don't consume; forward to FluidSynth
+			return false;
+		}
+		else if (nAddressHiMed == TYamahaAddress::DisplayLetter)
+		{
+			if (m_pUI)
+				m_pUI->ShowSysExText(CUserInterface::TSysExDisplayMessage::Yamaha, pYamahaData, nYamahaDataSize, nAddressLo);
+
+			// Consume
+			return true;
+		}
+		else if (nAddressHiMed == TYamahaAddress::DisplayBitmap)
+		{
+			if (m_pUI)
+				m_pUI->ShowSysExBitmap(CUserInterface::TSysExDisplayMessage::Yamaha, pYamahaData, nYamahaDataSize);
+
+			// Consume
+			return true;
+		}
+	}
+
+	return false;
+}

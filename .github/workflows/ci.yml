@@ -3,9 +3,36 @@ name: mt32-pi CI
 on: [push, pull_request]
 
 env:
-  toolchain-version: 10.2-2020.11
+  toolchain-version: 10.3-2021.07
+  python-version: 3.6
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4.0.0
+        with:
+          python-version: ${{ env.python-version }}
+
+      - uses: psf/black@stable
+        with:
+          options: --check --diff --experimental-string-processing
+          src: scripts
+
+      - uses: isort/isort-action@master
+        with:
+            sortPaths: scripts
+
+      - uses: py-actions/flake8@v2
+        with:
+          path: scripts
+
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: scripts
+
   build:
     runs-on: ubuntu-latest
     name: build-${{ matrix.board }}
@@ -14,13 +41,13 @@ jobs:
       matrix:
         board: [pi2, pi3-64, pi4-64]
     steps:
-    - uses: actions/checkout@v2.3.4
+    - uses: actions/checkout@v3
       with:
         submodules: recursive
 
     - name: Cache ARM toolchains
       id: cache-toolchains
-      uses: actions/cache@v2.1.6
+      uses: actions/cache@v3
       with:
         path: |
           ~/gcc-arm-${{ env.toolchain-version }}-x86_64-arm-none-eabi
@@ -46,7 +73,7 @@ jobs:
       run: make -j BOARD=${{ matrix.board }}
 
     - name: Upload built kernel
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: kernels
         path: kernel*.img
@@ -55,7 +82,7 @@ jobs:
       run: make clean && make -j BOARD=${{ matrix.board }} HDMI_CONSOLE=1
 
     - name: Upload built kernel
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: kernels-hdmi
         path: kernel*.img
@@ -68,38 +95,38 @@ jobs:
       wlan-home: external/circle-stdlib/libs/circle/addon/wlan
 
     steps:
-    - uses: actions/checkout@v2.3.4
+    - uses: actions/checkout@v3
       with:
         submodules: recursive
 
-    - name: Cache boot files
-      id: cache-boot-files
-      uses: actions/cache@v2.1.6
-      with:
-        path: |
-          sdcard/armstub8-rpi4.bin
-          sdcard/bcm2711-rpi-4-b.dtb
-          sdcard/bcm2711-rpi-400.dtb
-          sdcard/bcm2711-rpi-cm4.dtb
-          sdcard/bootcode.bin
-          sdcard/COPYING.linux
-          sdcard/fixup_cd.dat
-          sdcard/fixup4cd.dat
-          sdcard/LICENCE.broadcom
-          sdcard/start_cd.elf
-          sdcard/start4cd.elf
-        key: cache-boot-files-${{ hashFiles(join(env.boot-home, '/Makefile')) }}
+    # - name: Cache boot files
+    #   id: cache-boot-files
+    #   uses: actions/cache@v3
+    #   with:
+    #     path: |
+    #       sdcard/armstub8-rpi4.bin
+    #       sdcard/bcm2711-rpi-4-b.dtb
+    #       sdcard/bcm2711-rpi-400.dtb
+    #       sdcard/bcm2711-rpi-cm4.dtb
+    #       sdcard/bootcode.bin
+    #       sdcard/COPYING.linux
+    #       sdcard/fixup_cd.dat
+    #       sdcard/fixup4cd.dat
+    #       sdcard/LICENCE.broadcom
+    #       sdcard/start_cd.elf
+    #       sdcard/start4cd.elf
+    #     key: cache-boot-files-${{ hashFiles(join(env.boot-home, '/Makefile')) }}
 
     - name: Cache WLAN firmware
       id: cache-wlan-firmware
-      uses: actions/cache@v2.1.4
+      uses: actions/cache@v3
       with:
         path: sdcard/firmware
         key: cache-wlan-firmware-${{ hashFiles(join(env.wlan-home, '/firmware/Makefile')) }}
 
     - name: Cache ARM toolchains
       if: steps.cache-boot-files.outputs.cache-hit != 'true'
-      uses: actions/cache@v2.1.6
+      uses: actions/cache@v3
       with:
         path: |
           ~/gcc-arm-${{ env.toolchain-version }}-x86_64-arm-none-eabi
@@ -107,15 +134,17 @@ jobs:
         key: cache-arm-toolchains-${{ env.toolchain-version }}
 
     - name: Update PATH
-      if: steps.cache-boot-files.outputs.cache-hit != 'true'
+      # if: steps.cache-boot-files.outputs.cache-hit != 'true'
       run: |
         for triplet in arm-none-eabi aarch64-none-elf; do
           echo "$HOME/gcc-arm-${{ env.toolchain-version }}-x86_64-${triplet}/bin" >> $GITHUB_PATH
         done
 
     - name: Download boot files and build ARM stub if not retrieved from cache
-      if: steps.cache-boot-files.outputs.cache-hit != 'true'
+      # if: steps.cache-boot-files.outputs.cache-hit != 'true'
+      # Temporarily patch boot firmware version
       run: |
+        patch -N -p1 --no-backup-if-mismatch -r - -d external/circle-stdlib/libs/circle < patches/circle-44.5-revert-firmware.patch
         make -C ${{ env.boot-home }} firmware armstub64
         cp  ${{ env.boot-home }}/armstub8-rpi4.bin \
             ${{ env.boot-home }}/bcm2711-rpi-4-b.dtb \
@@ -138,6 +167,9 @@ jobs:
         cp  ${{ env.wlan-home }}/firmware/LICENCE.broadcom_bcm43xx \
             ${{ env.wlan-home }}/firmware/brcmfmac43430-sdio.bin \
             ${{ env.wlan-home }}/firmware/brcmfmac43430-sdio.txt \
+            ${{ env.wlan-home }}/firmware/brcmfmac43436-sdio.bin \
+            ${{ env.wlan-home }}/firmware/brcmfmac43436-sdio.txt \
+            ${{ env.wlan-home }}/firmware/brcmfmac43436-sdio.clm_blob \
             ${{ env.wlan-home }}/firmware/brcmfmac43455-sdio.bin \
             ${{ env.wlan-home }}/firmware/brcmfmac43455-sdio.txt \
             ${{ env.wlan-home }}/firmware/brcmfmac43455-sdio.clm_blob \
@@ -148,7 +180,7 @@ jobs:
 
     - name: Cache GeneralUser GS SoundFont
       id: cache-generaluser-gs
-      uses: actions/cache@v2.1.6
+      uses: actions/cache@v3
       with:
         path: GeneralUser GS v1.511
         key: cache-generaluser-gs-1.511
@@ -161,7 +193,7 @@ jobs:
         unzip "GeneralUser GS v1.511.zip"
 
     - name: Retrieve built kernels
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: kernels
         path: sdcard
@@ -176,7 +208,7 @@ jobs:
         cp README.md sdcard/docs
 
     - name: Upload SD card archive
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: sdcard
         path: sdcard

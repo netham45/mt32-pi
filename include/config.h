@@ -2,7 +2,7 @@
 // config.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -28,8 +28,6 @@
 
 #include "control/rotaryencoder.h"
 #include "lcd/drivers/ssd1306.h"
-#include "soundfontmanager.h"
-#include "synth/fxprofile.h"
 #include "synth/mt32romset.h"
 #include "synth/mt32synth.h"
 #include "utility.h"
@@ -47,10 +45,6 @@ public:
 		ENUM(HDMI, hdmi)                 \
 		ENUM(I2S, i2s)
 
-	#define ENUM_AUDIOI2CDACINIT(ENUM) \
-		ENUM(None, none)               \
-		ENUM(PCM51xx, pcm51xx)
-
 	#define ENUM_CONTROLSCHEME(ENUM)        \
 		ENUM(None, none)                    \
 		ENUM(SimpleButtons, simple_buttons) \
@@ -63,6 +57,7 @@ public:
 	using TMT32EmuROMSet           = TMT32ROMSet;
 
 	using TLCDRotation             = CSSD1306::TLCDRotation;
+	using TLCDMirror               = CSSD1306::TLCDMirror;
 
 	#define ENUM_LCDTYPE(ENUM)             \
 		ENUM(None, none)                   \
@@ -78,7 +73,6 @@ public:
 
 	CONFIG_ENUM(TSystemDefaultSynth, ENUM_SYSTEMDEFAULTSYNTH);
 	CONFIG_ENUM(TAudioOutputDevice, ENUM_AUDIOOUTPUTDEVICE);
-	CONFIG_ENUM(TAudioI2CDACInit, ENUM_AUDIOI2CDACINIT);
 	CONFIG_ENUM(TControlScheme, ENUM_CONTROLSCHEME);
 	CONFIG_ENUM(TLCDType, ENUM_LCDTYPE);
 	CONFIG_ENUM(TNetworkMode, ENUM_NETWORKMODE);
@@ -92,11 +86,6 @@ public:
 	#define CFG(_1, TYPE, MEMBER_NAME, _2, _3...) TYPE MEMBER_NAME;
 	#include "config.def"
 
-	TFXProfile FXProfiles[CSoundFontManager::MaxSoundFonts];
-
-private:
-	static int INIHandler(void* pUser, const char* pSection, const char* pName, const char* pValue);
-
 	// Overloaded function to parse config options based on their types specified in the definition file
 	static bool ParseOption(const char* pString, bool* pOut);
 	static bool ParseOption(const char* pString, int* pOut, bool bHex = false);
@@ -105,7 +94,6 @@ private:
 	static bool ParseOption(const char *pString, CIPAddress* pOut);
 	static bool ParseOption(const char* pString, TSystemDefaultSynth* pOut);
 	static bool ParseOption(const char* pString, TAudioOutputDevice* pOut);
-	static bool ParseOption(const char* pString, TAudioI2CDACInit* pOut);
 	static bool ParseOption(const char* pString, TMT32EmuResamplerQuality* pOut);
 	static bool ParseOption(const char* pString, TMT32EmuMIDIChannels* pOut);
 	static bool ParseOption(const char* pString, TMT32EmuROMSet* pOut);
@@ -113,10 +101,11 @@ private:
 	static bool ParseOption(const char* pString, TControlScheme* pOut);
 	static bool ParseOption(const char* pString, TEncoderType* pOut);
 	static bool ParseOption(const char* pString, TLCDRotation* pOut);
+	static bool ParseOption(const char* pString, TLCDMirror* pOut);
 	static bool ParseOption(const char* pString, TNetworkMode* pOut);
 
-	static bool ParseFXProfileSection(const char* pSection, size_t* pOutFXProfileIndex);
-	static bool ParseFXProfileOption(const char* pString, const char* pValue, TFXProfile* pOutFXProfile);
+private:
+	static int INIHandler(void* pUser, const char* pSection, const char* pName, const char* pValue);
 
 	static CConfig* s_pThis;
 };

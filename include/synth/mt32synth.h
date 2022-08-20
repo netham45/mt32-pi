@@ -2,7 +2,7 @@
 // mt32synth.h
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -65,6 +65,7 @@ public:
 	virtual void UpdateLCD(CLCD& LCD, unsigned int nTicks) override;
 
 	void SetMIDIChannels(TMIDIChannels Channels);
+	void SetReversedStereo(bool bEnabled) { m_pSynth->setReversedStereoEnabled(bEnabled); }
 	bool SwitchROMSet(TMT32ROMSet ROMSet);
 	bool NextROMSet();
 	TMT32ROMSet GetROMSet() const;
@@ -74,26 +75,15 @@ public:
 	u8 GetMasterVolume() const;
 
 private:
-	enum class TLCDState
-	{
-		DisplayingPartStates,
-		DisplayingTimbreName,
-		DisplayingMessage,
-	};
-
 	static constexpr size_t MT32ChannelCount = 9;
 
 	// N characters plus null terminator
 	static constexpr size_t LCDTextBufferSize = 20 + 1;
-	static constexpr unsigned LCDMessageDisplayTimeMillis = 200;
-	static constexpr unsigned LCDTimbreDisplayTimeMillis = 1200;
 
-	void UpdatePartStateText(bool bNarrow);
 	void GetPartLevels(unsigned int nTicks, float PartLevels[9], float PartPeaks[9]);
 
 	// MT32Emu::ReportHandler
 	virtual bool onMIDIQueueOverflow() override;
-	virtual void onProgramChanged(MT32Emu::Bit8u nPartNum, const char* pSoundGroupName, const char* pPatchName) override;
 	virtual void printDebug(const char* pFmt, va_list pList) override;
 	virtual void showLCDMessage(const char* pMessage) override;
 	virtual void onDeviceReset() override;
@@ -115,10 +105,7 @@ private:
 	const MT32Emu::ROMImage* m_pPCMROMImage;
 
 	// LCD state
-	TLCDState m_LCDState;
-	unsigned m_nLCDStateTime;
 	char m_LCDTextBuffer[LCDTextBufferSize];
-	u8 m_nPreviousMasterVolume;
 };
 
 #endif

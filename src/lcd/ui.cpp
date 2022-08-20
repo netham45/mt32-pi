@@ -2,7 +2,7 @@
 // synthlcd.cpp
 //
 // mt32-pi - A baremetal MIDI synthesizer for Raspberry Pi
-// Copyright (C) 2020-2021 Dale Whinham <daleyo@gmail.com>
+// Copyright (C) 2020-2022 Dale Whinham <daleyo@gmail.com>
 //
 // This file is part of mt32-pi.
 //
@@ -42,8 +42,9 @@ CUserInterface::CUserInterface()
 	  m_nCurrentSpinnerChar(0),
 	  m_CurrentImage(TImage::None),
 	  m_SystemMessageTextBuffer{'\0'},
-	  m_SC55TextBuffer{'\0'},
-	  m_SC55PixelBuffer{0}
+	  m_SysExDisplayMessageType(TSysExDisplayMessage::Roland),
+	  m_SysExTextBuffer{'\0'},
+	  m_SysExPixelBuffer{0}
 {
 }
 
@@ -54,8 +55,8 @@ bool CUserInterface::UpdateScroll(CLCD& LCD, unsigned int nTicks)
 	const char* pMessage;
 	if (m_State == TState::DisplayingMessage)
 		pMessage = m_SystemMessageTextBuffer;
-	else if (m_State == TState::DisplayingSC55Text)
-		pMessage = m_SC55TextBuffer;
+	else if (m_State == TState::DisplayingSysExText && m_SysExDisplayMessageType == TSysExDisplayMessage::Roland)
+		pMessage = m_SysExTextBuffer;
 	else
 		return false;
 
@@ -94,8 +95,11 @@ void CUserInterface::Update(CLCD& LCD, CSynthBase& Synth, unsigned int nTicks)
 	// Spinner update
 	else if (m_State == TState::DisplayingSpinnerMessage && !m_bIsScrolling && nDeltaTicks >= Utility::MillisToTicks(SystemMessageSpinnerTimeMillis))
 	{
+		// TODO: API for getting width in pixels/characters for a string
+		const size_t nCharWidth = LCD.GetType() == CLCD::TType::Graphical ? 20 : LCD.Width();
+
 		m_nCurrentSpinnerChar = (m_nCurrentSpinnerChar + 1) % sizeof(SpinnerChars);
-		m_SystemMessageTextBuffer[SystemMessageTextBufferSize - 2] = SpinnerChars[m_nCurrentSpinnerChar];
+		m_SystemMessageTextBuffer[nCharWidth - 2] = SpinnerChars[m_nCurrentSpinnerChar];
 		m_nStateTime = nTicks;
 	}
 
@@ -107,7 +111,7 @@ void CUserInterface::Update(CLCD& LCD, CSynthBase& Synth, unsigned int nTicks)
 	}
 
 	// SC-55 text timeout
-	else if ((m_State == TState::DisplayingSC55Text && !m_bIsScrolling || m_State == TState::DisplayingSC55Dots) && nDeltaTicks >= Utility::MillisToTicks(SC55DisplayTimeMillis))
+	else if ((m_State == TState::DisplayingSysExText && !m_bIsScrolling || m_State == TState::DisplayingSysExBitmap) && nDeltaTicks >= Utility::MillisToTicks(SC55DisplayTimeMillis))
 	{
 		m_State = TState::None;
 		m_nStateTime = nTicks;
@@ -173,19 +177,35 @@ void CUserInterface::DisplayImage(TImage Image)
 	m_nStateTime = nTicks;
 }
 
-void CUserInterface::ShowSC55Text(const char* pMessage)
+void CUserInterface::ShowSysExText(TSysExDisplayMessage Type, const u8* pMessage, size_t nSize, u8 nOffset)
 {
+	if (nOffset + nSize > SyxExTextBufferSize - 1)
+		nSize = SyxExTextBufferSize - 1 - nOffset;
+
+	memset(m_SysExTextBuffer, ' ', nOffset);
+	memcpy(m_SysExTextBuffer + nOffset, pMessage, nSize);
+	m_SysExTextBuffer[nOffset + nSize] = '\0';
+
 	const unsigned nTicks = CTimer::GetClockTicks();
-	snprintf(m_SC55TextBuffer, sizeof(m_SC55TextBuffer), pMessage);
-	m_State = TState::DisplayingSC55Text;
+	m_SysExDisplayMessageType = Type;
+	m_State = TState::DisplayingSysExText;
+	m_nCurrentScrollOffset = 0;
 	m_nStateTime = nTicks;
 }
 
-void CUserInterface::ShowSC55Dots(const u8* pData)
+void CUserInterface::ShowSysExBitmap(TSysExDisplayMessage Type, const u8* pData, size_t nSize)
 {
+	if (nSize == 0)
+		return;
+	if (Type == TSysExDisplayMessage::Roland && nSize > 64)
+		nSize = 64;
+	else if (Type == TSysExDisplayMessage::Yamaha && nSize > 48)
+		nSize = 48;
+
 	const unsigned nTicks = CTimer::GetClockTicks();
-	memcpy(m_SC55PixelBuffer, pData, sizeof(m_SC55PixelBuffer));
-	m_State = TState::DisplayingSC55Dots;
+	m_SysExDisplayMessageType = Type;
+	memcpy(m_SysExPixelBuffer, pData, nSize);
+	m_State = TState::DisplayingSysExBitmap;
 	m_nStateTime = nTicks;
 }
 
@@ -308,46 +328,79 @@ bool CUserInterface::DrawSystemState(CLCD& LCD) const
 
 	if (LCD.GetType() == CLCD::TType::Graphical)
 	{
+		const u8 nMessageRow = nHeight == 32 ? 0 : 1;
+
 		if (m_State == TState::DisplayingImage)
 			LCD.DrawImage(m_CurrentImage);
-		else if (m_State == TState::DisplayingSC55Dots)
-			DrawSC55Dots(LCD, 0, nHeight / 8);
+		else if (m_State == TState::DisplayingSysExBitmap)
+			DrawSysExBitmap(LCD, 0, nHeight / 8);
+		else if (m_State == TState::DisplayingSysExText)
+			DrawSysExText(LCD, nMessageRow);
 		else
 		{
-			const u8 nMessageRow = nHeight == 32 ? 0 : 1;
-			const char* const pMessage = m_State == TState::DisplayingSC55Text ? m_SC55TextBuffer : m_SystemMessageTextBuffer;
-			const u8 nOffsetX = CenterMessageOffset(LCD, pMessage);
-			LCD.Print(pMessage + m_nCurrentScrollOffset, nOffsetX, nMessageRow, true, false);
+			const u8 nOffsetX = CenterMessageOffset(LCD, m_SystemMessageTextBuffer);
+			LCD.Print(m_SystemMessageTextBuffer + m_nCurrentScrollOffset, nOffsetX, nMessageRow, true, false);
 		}
 	}
 	else
 	{
 		// Character LCD can't display graphics
-		if (m_State == TState::DisplayingImage || m_State == TState::DisplayingSC55Dots)
+		if (m_State == TState::DisplayingImage || m_State == TState::DisplayingSysExBitmap)
 			return false;
 
-		const char* const pMessage = m_State == TState::DisplayingSC55Text ? m_SC55TextBuffer : m_SystemMessageTextBuffer;
-		const u8 nOffsetX = CenterMessageOffset(LCD, pMessage);
+		if (m_State == TState::DisplayingSysExText)
+			DrawSysExText(LCD, nHeight == 2 ? 0 : 1);
+		else
+		{
+			const u8 nOffsetX = CenterMessageOffset(LCD, m_SystemMessageTextBuffer);
 
-		if (nHeight == 2)
-		{
-			LCD.Print(pMessage + m_nCurrentScrollOffset, nOffsetX, 0, true);
-			LCD.Print("", 0, 1, true);
-		}
-		else if (nHeight == 4)
-		{
-			// Clear top line
-			LCD.Print("", 0, 0, true);
-			LCD.Print(pMessage + m_nCurrentScrollOffset, nOffsetX, 1, true);
-			LCD.Print("", 0, 2, true);
-			LCD.Print("", 0, 3, true);
+			if (nHeight == 2)
+			{
+				LCD.Print(m_SystemMessageTextBuffer + m_nCurrentScrollOffset, nOffsetX, 0, true);
+				LCD.Print("", 0, 1, true);
+			}
+			else if (nHeight == 4)
+			{
+				// Clear top line
+				LCD.Print("", 0, 0, true);
+				LCD.Print(m_SystemMessageTextBuffer + m_nCurrentScrollOffset, nOffsetX, 1, true);
+				LCD.Print("", 0, 2, true);
+				LCD.Print("", 0, 3, true);
+			}
 		}
 	}
 
 	return true;
 }
 
-void CUserInterface::DrawSC55Dots(CLCD& LCD, u8 nFirstRow, u8 nRows) const
+void CUserInterface::DrawSysExText(CLCD& LCD, u8 nFirstRow) const
+{
+	if (m_SysExDisplayMessageType == TSysExDisplayMessage::Roland)
+	{
+		// Roland SysEx text messages are single line and can be scrolled
+		const u8 nOffsetX = CenterMessageOffset(LCD, m_SysExTextBuffer);
+		LCD.Print(m_SysExTextBuffer + m_nCurrentScrollOffset, nOffsetX, nFirstRow, true, false);
+	}
+	else
+	{
+		// TODO: API for getting width in pixels/characters for a string
+		const size_t nCharWidth = LCD.GetType() == CLCD::TType::Graphical ? 20 : LCD.Width();
+		const u8 nOffsetX = (nCharWidth - 16) / 2;
+
+		// Yamaha SysEx text messages are up to 16x2 characters and do not scroll, so split lines
+		// and center on the LCD
+		char Buffer[16 + 1];
+		memcpy(Buffer, m_SysExTextBuffer, 16);
+		Buffer[16] = '\0';
+
+		LCD.Print(Buffer, nOffsetX, nFirstRow, true, false);
+
+		if (strlen(m_SysExTextBuffer) > 16)
+			LCD.Print(m_SysExTextBuffer + 16, nOffsetX, nFirstRow + 1, true, false);
+	}
+}
+
+void CUserInterface::DrawSysExBitmap(CLCD& LCD, u8 nFirstRow, u8 nRows) const
 {
 	const u8 nWidth = LCD.Width();
 	const u8 nHeight = LCD.Height();
@@ -358,19 +411,37 @@ void CUserInterface::DrawSC55Dots(CLCD& LCD, u8 nFirstRow, u8 nRows) const
 	const size_t nOffsetX = (nWidth - 16 * nScaleX) / 2;
 	const size_t nOffsetY = (nHeight - 16 * nScaleY) / 2;
 
-	for (u8 nByte = 0; nByte < sizeof(m_SC55PixelBuffer); ++nByte)
+	u8 nHeadLength = 0, nHeadPixels = 0, nTailPixels = 0;
+
+	if (m_SysExDisplayMessageType == TSysExDisplayMessage::Roland)
 	{
+		// SC-55: Max 64 bytes; each byte representing 5 pixels (see p78 of SC-55 manual)
 		// First 48 bytes have 5 columns of pixels, last 16 bytes have only 1
-		const u8 nPixels = nByte < 48 ? 5 : 1;
+		nHeadLength = 48;
+		nHeadPixels = 5;
+		nTailPixels = 1;
+	}
+	else if (m_SysExDisplayMessageType == TSysExDisplayMessage::Yamaha)
+	{
+		// Yamaha: Max 48 bytes; each byte representing 7 pixels (see p16 of MU80 Sound List & MIDI Data book)
+		// First 32 bytes have 7 columns of pixels, last 16 bytes have only 2
+		nHeadLength = 32;
+		nHeadPixels = 7;
+		nTailPixels = 2;
+	}
+
+	for (u8 nByte = 0; nByte < sizeof(m_SysExPixelBuffer); ++nByte)
+	{
+		const u8 nPixels = nByte < nHeadLength ? nHeadPixels : nTailPixels;
 
 		for (u8 nPixel = 0; nPixel < nPixels; ++nPixel)
 		{
-			const bool bPixelValue = (m_SC55PixelBuffer[nByte] >> (5 - 1 - nPixel)) & 1;
+			const bool bPixelValue = (m_SysExPixelBuffer[nByte] >> (nHeadPixels - 1 - nPixel)) & 1;
 
 			if (!bPixelValue)
 				continue;
 
-			const u8 nPosX = nByte / 16 * 5 + nPixel;
+			const u8 nPosX = nByte / 16 * nHeadPixels + nPixel;
 			const u8 nPosY = nByte % 16;
 
 			const u8 nScaledX = nOffsetX + nPosX * nScaleX;
